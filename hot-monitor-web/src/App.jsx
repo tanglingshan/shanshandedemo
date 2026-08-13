@@ -1,0 +1,172 @@
+import { useEffect, useMemo, useState } from 'react'
+import { api } from './services/api'
+import { createDashboardSocket } from './services/socket'
+
+const navItems = [
+  { key: 'all', label: '总览', mark: '◈' },
+  { key: 'hackernews', label: 'HackerNews', mark: 'H' },
+  { key: 'bing', label: 'Bing', mark: 'B' },
+  { key: 'bilibili', label: 'B站', mark: '播' },
+  { key: 'ai', label: 'AI 推荐', mark: '✦' },
+  { key: 'high', label: '高热度', mark: '↗' },
+]
+
+function App() {
+  const [page, setPage] = useState('login')
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    api.me().then((result) => {
+      if (result.data) {
+        setUser(result.data)
+        setPage('dashboard')
+      }
+    }).catch(() => setPage('login'))
+  }, [])
+
+  const handleAuth = (nextUser) => {
+    setUser(nextUser)
+    setPage('dashboard')
+  }
+
+  if (page === 'login') return <AuthPage mode="login" onSuccess={handleAuth} onSwitch={() => setPage('register')} />
+  if (page === 'register') return <AuthPage mode="register" onSuccess={handleAuth} onSwitch={() => setPage('login')} />
+  return <Dashboard user={user} onLogout={() => { api.logout(); setUser(null); setPage('login') }} />
+}
+
+function AuthPage({ mode, onSuccess, onSwitch }) {
+  const isLogin = mode === 'login'
+  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    if (!form.email || !form.password) return setError('请输入邮箱和密码')
+    if (!isLogin && form.password !== form.confirmPassword) return setError('两次输入的密码不一致')
+    setLoading(true)
+    try {
+      const result = isLogin ? await api.login(form) : await api.register(form)
+      onSuccess(result.data)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-panel">
+        <div className="brand-lockup">
+          <div className="brand-icon">H</div>
+          <div>
+            <strong>Hot Monitor</strong>
+            <span>AI 热点监控台</span>
+          </div>
+        </div>
+        <div className="auth-heading">
+          <p className="eyebrow">{isLogin ? 'WELCOME BACK' : 'GET STARTED'}</p>
+          <h1>{isLogin ? '登录你的监控台' : '创建监控账号'}</h1>
+          <p>{isLogin ? '掌握实时信息流，及时发现值得关注的变化。' : '注册后即可进入实时热点仪表盘。'}</p>
+        </div>
+        <form className="auth-form" onSubmit={submit}>
+          <label>邮箱地址<input type="email" autoComplete="email" placeholder="you@example.com" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+          <label>密码<input type="password" autoComplete={isLogin ? 'current-password' : 'new-password'} placeholder="请输入密码" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+          {!isLogin && <label>确认密码<input type="password" autoComplete="new-password" placeholder="再次输入密码" value={form.confirmPassword} onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })} /></label>}
+          {error && <div className="form-error">{error}</div>}
+          <button type="submit" className="primary-button full-width" disabled={loading}>{loading ? '处理中...' : isLogin ? '进入仪表盘' : '创建账号'}</button>
+        </form>
+        <p className="auth-switch">{isLogin ? '还没有账号？' : '已有账号？'}<button type="button" className="text-button" onClick={onSwitch}>{isLogin ? '立即注册' : '返回登录'}</button></p>
+      </section>
+      <aside className="auth-aside">
+        <div className="signal-orbit"><span>LIVE</span></div>
+        <p className="eyebrow">SIGNAL OVERVIEW</p>
+        <h2>让重要信息<br />更早抵达。</h2>
+        <p>聚合多个公开来源，借助 AI 完成摘要、评分与分级，在一个清晰的工作台里掌握变化。</p>
+        <div className="aside-metrics"><span><b>3</b>数据源</span><span><b>5m</b>采集间隔</span><span><b>24/7</b>实时监控</span></div>
+      </aside>
+    </main>
+  )
+}
+
+function Dashboard({ user, onLogout }) {
+  const [items, setItems] = useState([])
+  const [overview, setOverview] = useState({})
+  const [source, setSource] = useState('all')
+  const [sort, setSort] = useState('latest')
+  const [keyword, setKeyword] = useState('')
+  const [activeNav, setActiveNav] = useState('all')
+  const [socketStatus, setSocketStatus] = useState('connecting')
+  const [newCount, setNewCount] = useState(0)
+  const [selected, setSelected] = useState(null)
+  const [toast, setToast] = useState('')
+
+  async function loadData() {
+    const [itemResult, overviewResult] = await Promise.all([api.hotItems({ source, sort, keyword }), api.overview()])
+    setItems(itemResult.data.items)
+    setOverview(overviewResult.data)
+  }
+
+  useEffect(() => { loadData().catch((error) => setToast(error.message)) }, [source, sort, keyword])
+
+  useEffect(() => {
+    const socket = createDashboardSocket({
+      userId: user?.id,
+      filters: { source },
+      onStatus: setSocketStatus,
+      onNewItem: (item) => { setItems((current) => [item, ...current]); setNewCount((count) => count + 1); setToast('收到新的热点推送') },
+      onUpdate: (item) => setItems((current) => current.map((entry) => entry.id === item.id ? item : entry)),
+      onStats: setOverview,
+      onError: setToast,
+    })
+    return () => socket.disconnect()
+  }, [user?.id, source])
+
+  const visibleItems = useMemo(() => {
+    if (activeNav === 'high') return items.filter((item) => item.rawScore > 600)
+    if (activeNav === 'ai') return items.filter((item) => item.aiScore >= 85)
+    return items
+  }, [activeNav, items])
+
+  function selectNav(key) {
+    setActiveNav(key)
+    if (['hackernews', 'bing', 'bilibili'].includes(key)) setSource(key)
+    if (key === 'all') setSource('all')
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="sidebar-brand"><div className="brand-icon small">H</div><div><strong>Hot Monitor</strong><span>AI SIGNAL DESK</span></div></div>
+        <div className="nav-section-label">工作台</div>
+        <nav>{navItems.map((item) => <button type="button" key={item.key} className={`nav-item ${activeNav === item.key ? 'active' : ''}`} onClick={() => selectNav(item.key)}><span className="nav-mark">{item.mark}</span>{item.label}{item.key === 'all' && <i>实时</i>}</button>)}</nav>
+        <div className="sidebar-footer"><div className={`status-dot ${socketStatus}`} /><div><strong>{socketStatus === 'connected' ? '实时连接正常' : '正在连接'}</strong><span>每 5 分钟自动采集</span></div></div>
+      </aside>
+      <main className="main-content">
+        <header className="topbar"><div><p className="eyebrow">OVERVIEW / REAL-TIME FEED</p><h1>热点总览</h1></div><div className="topbar-actions"><button type="button" className="icon-button" title="刷新数据" onClick={() => loadData()}>↻</button><div className="profile"><div className="avatar">{user?.email?.slice(0, 1).toUpperCase() || 'D'}</div><div><strong>{user?.email || 'demo@hotmonitor.dev'}</strong><span>观察员</span></div><button type="button" className="logout-button" onClick={onLogout}>退出</button></div></div></header>
+        {newCount > 0 && <button type="button" className="new-items-banner" onClick={() => { setNewCount(0); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>↓ 有 {newCount} 条新热点，点击查看</button>}
+        <section className="overview-grid">
+          <MetricCard label="今日新增热点" value={overview.todayCount ?? '--'} note="较昨日 +12.8%" tone="blue" />
+          <MetricCard label="活跃数据源" value={overview.sourceCount ?? '--'} note="HackerNews / Bing / B站" tone="green" />
+          <MetricCard label="AI 已分析" value={overview.analyzedCount ?? '--'} note="结构化摘要完成" tone="purple" />
+          <MetricCard label="高重要性事件" value={overview.highImportanceCount ?? '--'} note="建议优先关注" tone="orange" />
+        </section>
+        <section className="content-section">
+          <div className="section-heading"><div><h2>实时热点流</h2><p>来自多个公开来源的 AI 筛选信息</p></div><span className="last-updated"><span className="pulse" />最后采集 {overview.latestCollectTime || '—'}</span></div>
+          <div className="filters-bar"><div className="search-field"><span>⌕</span><input placeholder="搜索标题或摘要..." value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div><select value={source} onChange={(event) => { setSource(event.target.value); setActiveNav(event.target.value) }}><option value="all">全部来源</option><option value="hackernews">HackerNews</option><option value="bing">Bing</option><option value="bilibili">B站</option></select><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="latest">最新采集</option><option value="score">热度最高</option><option value="ai">AI 推荐</option></select><button type="button" className="filter-button" onClick={() => { setKeyword(''); setSource('all'); setSort('latest'); setActiveNav('all') }}>清除筛选</button></div>
+          <div className="table-wrap"><table><thead><tr><th>热点内容</th><th>来源</th><th>AI 摘要</th><th>热度</th><th>相关性</th><th>采集时间</th><th /></tr></thead><tbody>{visibleItems.map((item) => <HotItemRow key={item.id} item={item} onClick={() => setSelected(item)} />)}</tbody></table>{visibleItems.length === 0 && <div className="empty-state"><strong>没有匹配的热点</strong><span>试试清除筛选条件或换一个关键词。</span></div>}</div>
+        </section>
+      </main>
+      {selected && <DetailDrawer item={selected} onClose={() => setSelected(null)} />}
+      {toast && <button className="toast" onClick={() => setToast('')}>{toast}<span>×</span></button>}
+    </div>
+  )
+}
+
+function MetricCard({ label, value, note, tone }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}>◈</div><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div><b className="metric-trend">↗</b></article> }
+function HotItemRow({ item, onClick }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <tr onClick={onClick}><td><div className="item-title"><strong>{item.title}</strong><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div></td><td><span className={`source-badge ${item.source}`}>{item.sourceName}</span></td><td><span className="summary">{item.summary}</span></td><td><strong className="score">{item.rawScore}</strong></td><td><span className={`ai-score ${item.aiScore >= 85 ? 'good' : ''}`}>{item.aiScore}</span></td><td><span className="collected-time">{item.collectedAt}</span></td><td><span className="row-arrow">→</span></td></tr> }
+function DetailDrawer({ item, onClose }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-header"><span className={`source-badge ${item.source}`}>{item.sourceName}</span><button type="button" className="icon-button" onClick={onClose}>×</button></div><p className="eyebrow">HOT ITEM DETAIL</p><h2>{item.title}</h2><div className="drawer-scores"><div><span>热度分</span><strong>{item.rawScore}</strong></div><div><span>相关性</span><strong>{item.aiScore}</strong></div><div><span>重要性</span><strong>{item.importanceLevel === 'high' ? '高' : item.importanceLevel === 'medium' ? '中' : '低'}</strong></div></div><div className="drawer-block"><span className="block-label">AI 摘要</span><p>{item.summary}</p></div><div className="drawer-block"><span className="block-label">标签</span><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><a className="primary-button source-link" href={item.url} target="_blank" rel="noreferrer">打开原文 ↗</a></aside></div> }
+
+export default App

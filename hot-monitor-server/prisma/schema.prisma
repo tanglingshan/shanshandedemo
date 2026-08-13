@@ -1,0 +1,119 @@
+// Prisma Client 生成配置；业务代码通过 @prisma/client 访问 PostgreSQL。
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 数据库连接地址从环境变量读取，避免把云数据库凭据写入代码仓库。
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 注册用户及其 Session 关联的业务主体。
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  displayName  String?   @map("display_name")
+  status       String    @default("active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+// 外部热点来源配置，例如 Hacker News、Bing 和 B 站。
+model Source {
+  id                  String   @id @default(cuid())
+  code                String   @unique
+  name                String
+  type                String
+  enabled             Boolean  @default(true)
+  pollIntervalMinutes Int      @default(5) @map("poll_interval_minutes")
+  sourceUrl           String?  @map("source_url")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("sources")
+}
+
+// 归一化后的热点主表，保存展示、排序、去重和 AI 分析状态。
+model HotItem {
+  id              String          @id @default(cuid())
+  title           String
+  canonicalUrl    String?         @unique @map("canonical_url")
+  sourceCode      String          @map("source_code")
+  sourceItemId    String          @map("source_item_id")
+  publishedAt     DateTime?       @map("published_at")
+  collectedAt     DateTime        @default(now()) @map("collected_at")
+  rawContentHash  String?         @map("raw_content_hash")
+  summary         String?
+  tags            String[]        @default([])
+  hotScore        Int             @default(0) @map("hot_score")
+  relevanceScore  Float?          @map("relevance_score")
+  importanceLevel String          @default("normal") @map("importance_level")
+  analysisStatus  String          @default("pending") @map("analysis_status")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  sources         HotItemSource[]
+  aiAnalysis      AiAnalysis?
+
+  @@unique([sourceCode, sourceItemId])
+  @@index([publishedAt])
+  @@index([hotScore])
+  @@map("hot_items")
+}
+
+// 热点与原始来源之间的追踪表，保留采集时的原始标题、摘要和 JSON。
+model HotItemSource {
+  id           String   @id @default(cuid())
+  hotItemId    String   @map("hot_item_id")
+  hotItem      HotItem  @relation(fields: [hotItemId], references: [id], onDelete: Cascade)
+  sourceCode   String   @map("source_code")
+  sourceItemId String   @map("source_item_id")
+  sourceUrl    String?  @map("source_url")
+  rawTitle     String   @map("raw_title")
+  rawSummary   String?  @map("raw_summary")
+  rawPayload   Json?    @map("raw_payload")
+  collectedAt  DateTime @default(now()) @map("collected_at")
+
+  @@unique([sourceCode, sourceItemId])
+  @@map("hot_item_sources")
+}
+
+// AI 分析结果表，与一个热点一对一关联。
+model AiAnalysis {
+  id               String   @id @default(cuid())
+  hotItemId         String   @unique @map("hot_item_id")
+  hotItem           HotItem  @relation(fields: [hotItemId], references: [id], onDelete: Cascade)
+  provider          String
+  model             String
+  promptVersion     String   @map("prompt_version")
+  factualityScore   Float?   @map("factuality_score")
+  relevanceScore    Float?   @map("relevance_score")
+  importanceLevel   String   @map("importance_level")
+  summary           String
+  tags              String[] @default([])
+  analysisPayload   Json?    @map("analysis_payload")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("ai_analyses")
+}
+
+// 每次数据源采集的运行记录，用于统计成功、失败和处理数量。
+model CollectorRun {
+  id             String    @id @default(cuid())
+  sourceCode     String    @map("source_code")
+  status         String
+  startedAt      DateTime  @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  itemsFetched   Int       @default(0) @map("items_fetched")
+  itemsInserted  Int       @default(0) @map("items_inserted")
+  itemsUpdated   Int       @default(0) @map("items_updated")
+  itemsSkipped   Int       @default(0) @map("items_skipped")
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("collector_runs")
+}

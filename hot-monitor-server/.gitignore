@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+coverage/
+npm-debug.log*
+*.log
+prisma/dev.db
