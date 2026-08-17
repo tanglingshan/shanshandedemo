@@ -11,16 +11,63 @@ datasource db {
 
 // 注册用户及其 Session 关联的业务主体。
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  displayName  String?   @map("display_name")
-  status       String    @default("active")
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id                       String                   @id @default(cuid())
+  email                    String                   @unique
+  passwordHash             String                   @map("password_hash")
+  displayName              String?                  @map("display_name")
+  status                   String                   @default("active")
+  lastLoginAt              DateTime?                @map("last_login_at")
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+  imageGenerationHistories ImageGenerationHistory[]
 
   @@map("users")
+}
+
+model ImageGenerationHistory {
+  id             String                 @id @default(cuid())
+  userId         String                 @map("user_id")
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId      String                 @unique @map("request_id")
+  prompt         String
+  negativePrompt String?                @map("negative_prompt")
+  model          String
+  provider       String
+  size           String
+  count          Int                    @default(1)
+  quality        String?
+  style          String?
+  referenceHash  String?                @map("reference_hash")
+  status         String                 @default("pending")
+  revisedPrompt  String?                @map("revised_prompt")
+  errorCode      String?                @map("error_code")
+  errorMessage   String?                @map("error_message")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  completedAt    DateTime?              @map("completed_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  images         ImageGenerationImage[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Asc)])
+  @@map("image_generation_histories")
+}
+
+model ImageGenerationImage {
+  id            String                 @id @default(cuid())
+  historyId     String                 @map("history_id")
+  history       ImageGenerationHistory @relation(fields: [historyId], references: [id], onDelete: Cascade)
+  ordinal       Int
+  providerUrl   String?                @map("provider_url")
+  storageKey    String?                @map("storage_key")
+  mimeType      String?                @map("mime_type")
+  data          Bytes?                 @db.ByteA
+  revisedPrompt String?                @map("revised_prompt")
+  createdAt     DateTime               @default(now()) @map("created_at")
+
+  @@unique([historyId, ordinal])
+  @@index([historyId, ordinal])
+  @@map("image_generation_images")
 }
 
 // 外部热点来源配置，例如 Hacker News、Bing 和 B 站。
@@ -84,36 +131,36 @@ model HotItemSource {
 
 // AI 分析结果表，与一个热点一对一关联。
 model AiAnalysis {
-  id               String   @id @default(cuid())
-  hotItemId         String   @unique @map("hot_item_id")
-  hotItem           HotItem  @relation(fields: [hotItemId], references: [id], onDelete: Cascade)
-  provider          String
-  model             String
-  promptVersion     String   @map("prompt_version")
-  factualityScore   Float?   @map("factuality_score")
-  relevanceScore    Float?   @map("relevance_score")
-  importanceLevel   String   @map("importance_level")
-  summary           String
-  tags              String[] @default([])
-  analysisPayload   Json?    @map("analysis_payload")
-  createdAt         DateTime @default(now()) @map("created_at")
+  id              String   @id @default(cuid())
+  hotItemId       String   @unique @map("hot_item_id")
+  hotItem         HotItem  @relation(fields: [hotItemId], references: [id], onDelete: Cascade)
+  provider        String
+  model           String
+  promptVersion   String   @map("prompt_version")
+  factualityScore Float?   @map("factuality_score")
+  relevanceScore  Float?   @map("relevance_score")
+  importanceLevel String   @map("importance_level")
+  summary         String
+  tags            String[] @default([])
+  analysisPayload Json?    @map("analysis_payload")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("ai_analyses")
 }
 
 // 每次数据源采集的运行记录，用于统计成功、失败和处理数量。
 model CollectorRun {
-  id             String    @id @default(cuid())
-  sourceCode     String    @map("source_code")
-  status         String
-  startedAt      DateTime  @map("started_at")
-  finishedAt     DateTime? @map("finished_at")
-  itemsFetched   Int       @default(0) @map("items_fetched")
-  itemsInserted  Int       @default(0) @map("items_inserted")
-  itemsUpdated   Int       @default(0) @map("items_updated")
-  itemsSkipped   Int       @default(0) @map("items_skipped")
-  errorMessage   String?   @map("error_message")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  id            String    @id @default(cuid())
+  sourceCode    String    @map("source_code")
+  status        String
+  startedAt     DateTime  @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  itemsFetched  Int       @default(0) @map("items_fetched")
+  itemsInserted Int       @default(0) @map("items_inserted")
+  itemsUpdated  Int       @default(0) @map("items_updated")
+  itemsSkipped  Int       @default(0) @map("items_skipped")
+  errorMessage  String?   @map("error_message")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@map("collector_runs")
 }

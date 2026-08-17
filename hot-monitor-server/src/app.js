@@ -16,6 +16,10 @@ export function createApp(sessionMiddleware) {
   // 允许前端携带 Session Cookie 调用后端接口。
   app.use(cors({ origin: env.corsOrigin, credentials: true }));
   // 解析 JSON 请求体，并限制单次请求大小。
+  // Reference images arrive as base64 data URLs and may be several MB. Keep
+  // this larger parser scoped to image generation; all other APIs retain the
+  // smaller default request limit.
+  app.use("/api/image-generations", express.json({ limit: "12mb" }));
   app.use(express.json({ limit: "1mb" }));
   app.use(morgan(env.isProduction ? "combined" : "dev"));
   // Session 必须在业务路由之前挂载，认证中间件才能读取 req.session。

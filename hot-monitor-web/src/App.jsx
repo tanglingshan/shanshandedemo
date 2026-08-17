@@ -175,7 +175,7 @@ function Dashboard({ user, onLogout }) {
       <main className="main-content">
         <header className="topbar"><div><p className="eyebrow">{imageWorkspace ? 'CREATIVE TOOLS / AI IMAGE' : 'OVERVIEW / REAL-TIME FEED'}</p><h1>{imageWorkspace ? 'AI 生图' : '热点总览'}</h1></div><div className="topbar-actions">{!imageWorkspace && <button type="button" className="icon-button" title="刷新数据" onClick={() => loadData()}>↻</button>}<div className="profile"><div className="avatar">{user?.email?.slice(0, 1).toUpperCase() || 'D'}</div><div><strong>{user?.email || 'demo@hotmonitor.dev'}</strong><span>观察员</span></div><button type="button" className="logout-button" onClick={onLogout}>退出</button></div></div></header>
         {!imageWorkspace && newCount > 0 && <button type="button" className="new-items-banner" onClick={() => { setNewCount(0); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>↓ 有 {newCount} 条新热点，点击查看</button>}
-        {imageWorkspace ? <ImageGenerationWorkspace /> : <>
+        {imageWorkspace ? <ImageGenerationWorkspaceV2 /> : <>
         <section className="overview-grid">
           <MetricCard label="今日新增热点" value={overview.todayCount ?? '--'} note="较昨日 +12.8%" tone="blue" />
           <MetricCard label="活跃数据源" value={overview.sourceCount ?? '--'} note="HackerNews / Bing / B站" tone="green" />
@@ -225,6 +225,10 @@ function ImageGenerationWorkspace() {
         prompt,
         negativePrompt: form.negativePrompt.trim() || undefined,
         size: form.size,
+        // Keep the legacy `n` field while also sending the image-studio contract.
+        count: Number(form.n),
+        quality: 'auto',
+        referenceImage: '',
         n: Number(form.n),
       })
       const nextImages = result.data?.images || []
@@ -280,5 +284,54 @@ function ImageGenerationWorkspace() {
 function MetricCard({ label, value, note, tone }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}>◈</div><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div><b className="metric-trend">↗</b></article> }
 function HotItemRow({ item, onClick }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <tr onClick={onClick}><td><div className="item-title"><strong>{item.title}</strong><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div></td><td><span className={`source-badge ${item.source}`}>{item.sourceName}</span></td><td><span className="summary">{item.summary}</span></td><td><strong className="score">{item.rawScore}</strong></td><td><span className={`ai-score ${item.aiScore >= 85 ? 'good' : ''}`}>{item.aiScore}</span></td><td><span className="collected-time">{item.collectedAt}</span></td><td><span className="row-arrow">→</span></td></tr> }
 function DetailDrawer({ item, onClose }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-header"><span className={`source-badge ${item.source}`}>{item.sourceName}</span><button type="button" className="icon-button" onClick={onClose}>×</button></div><p className="eyebrow">HOT ITEM DETAIL</p><h2>{item.title}</h2><div className="drawer-scores"><div><span>热度分</span><strong>{item.rawScore}</strong></div><div><span>相关性</span><strong>{item.aiScore}</strong></div><div><span>重要性</span><strong>{item.importanceLevel === 'high' ? '高' : item.importanceLevel === 'medium' ? '中' : '低'}</strong></div></div><div className="drawer-block"><span className="block-label">AI 摘要</span><p>{item.summary}</p></div><div className="drawer-block"><span className="block-label">标签</span><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><a className="primary-button source-link" href={item.url} target="_blank" rel="noreferrer">打开原文 ↗</a></aside></div> }
+
+function ImageGenerationWorkspaceV2() {
+  const [form, setForm] = useState({ prompt: '', negativePrompt: '', style: '', size: '1024x1024', n: 1 })
+  const [images, setImages] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [polishing, setPolishing] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [history, setHistory] = useState({ items: [], page: 1, pageSize: 12, total: 0, totalPages: 0 })
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [previewIndex, setPreviewIndex] = useState(null)
+  const updateField = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+  async function loadHistory(page = 1) {
+    setHistoryLoading(true); setHistoryError('')
+    try { const result = await api.imageHistory({ page, pageSize: 12 }); setHistory(result.data || { items: [], page, pageSize: 12, total: 0, totalPages: 0 }) }
+    catch (requestError) { setHistoryError(requestError.message || '历史记录加载失败') }
+    finally { setHistoryLoading(false) }
+  }
+  useEffect(() => { loadHistory().catch(() => {}) }, [])
+  async function polishPrompt() {
+    const prompt = form.prompt.trim(); if (!prompt) { setError('请先输入提示词'); return }
+    setPolishing(true); setError(''); setNotice('')
+    try { const result = await api.imagePolish({ prompt, negativePrompt: form.negativePrompt.trim() || undefined, style: form.style.trim() || undefined, language: 'zh-CN' }); const polished = result.data || {}; setForm((current) => ({ ...current, prompt: polished.prompt || current.prompt, negativePrompt: polished.negativePrompt || current.negativePrompt })); setNotice('AI 润色完成，可继续编辑后生成') }
+    catch (requestError) { setError(requestError.message || 'AI 润色失败，请稍后重试') } finally { setPolishing(false) }
+  }
+  async function submit(event) {
+    event.preventDefault(); const prompt = form.prompt.trim(); if (!prompt) { setError('请输入图片描述'); return }; if (prompt.length > 1000) { setError('提示词不能超过 1000 个字符'); return }
+    setLoading(true); setError(''); setNotice(''); setPreviewIndex(null)
+    try { const result = await api.imageGenerate({ prompt, negativePrompt: form.negativePrompt.trim() || undefined, size: form.size, count: Number(form.n), quality: 'auto', referenceImage: '', n: Number(form.n) }); const nextImages = result.data?.images || []; setImages(nextImages); setNotice(nextImages.length ? `已生成 ${nextImages.length} 张图片` : '服务未返回图片，请稍后重试'); if (!nextImages.length) setError('服务未返回图片，请稍后重试'); loadHistory().catch(() => {}) }
+    catch (requestError) { setImages([]); setError(requestError.message || '生图失败，请稍后重试') } finally { setLoading(false) }
+  }
+  function selectHistory(item) { setForm((current) => ({ ...current, prompt: item.prompt || '', negativePrompt: item.negativePrompt || '', size: item.size || current.size, n: item.count || current.n })); setImages(item.images || []); setNotice('已载入历史记录'); setPreviewIndex(null) }
+  const previewImage = previewIndex === null ? null : images[previewIndex]
+  return <section className="image-workspace">
+    <div className="image-intro"><p className="eyebrow">PROMPT TO IMAGE</p><h2>把想法变成画面</h2><p>输入描述，先用 AI 润色提示词，再生成并管理你的图片历史。</p></div>
+    <div className="image-workspace-grid"><form className="image-form" onSubmit={submit}>
+      <label>提示词<span className="field-hint">{form.prompt.length}/1000</span><textarea rows="7" maxLength="1000" value={form.prompt} onChange={(event) => updateField('prompt', event.target.value)} placeholder="例如：一座被云海环绕的未来城市，清晨柔和的金色光线，电影感构图" /></label>
+      <label>反向提示词<span className="optional-label">可选</span><input value={form.negativePrompt} onChange={(event) => updateField('negativePrompt', event.target.value)} placeholder="例如：模糊、低质量、文字水印" /></label>
+      <label>风格<span className="optional-label">可选</span><input value={form.style} onChange={(event) => updateField('style', event.target.value)} placeholder="例如：电影感、写实" /></label>
+      <div className="image-form-row"><label>图片尺寸<select value={form.size} onChange={(event) => updateField('size', event.target.value)}><option value="1024x1024">1024 × 1024</option><option value="1536x1024">1536 × 1024</option><option value="1024x1536">1024 × 1536</option></select></label><label>生成数量<select value={form.n} onChange={(event) => updateField('n', event.target.value)}><option value="1">1 张</option><option value="2">2 张</option><option value="3">3 张</option><option value="4">4 张</option></select></label></div>
+      {error && <div className="form-error image-error">{error}</div>}<div className="image-form-actions"><button type="button" className="secondary-button" onClick={polishPrompt} disabled={loading || polishing}>{polishing ? '润色中…' : 'AI 润色提示词'}</button><button type="submit" className="primary-button image-submit" disabled={loading || polishing}>{loading ? '正在生成…' : '生成图片'}</button></div>{notice && <p className="image-form-note image-notice">{notice}</p>}<p className="image-form-note">润色复用文本 API 配置，生图使用独立 API 配置。</p>
+    </form><div className="image-results" aria-live="polite"><div className="image-results-header"><div><span className="block-label">生成结果</span><strong>{loading ? '正在渲染...' : notice || '等待一次生成'}</strong></div>{images.length > 0 && <button type="button" className="text-button" onClick={() => setImages([])}>清空</button>}</div>
+      {loading && <div className="image-loading"><span className="loading-spinner" /><p>模型正在绘制你的画面</p><small>这通常需要几秒钟，请稍候</small></div>}{!loading && images.length === 0 && <div className="image-empty"><span className="empty-image-mark">✦</span><strong>你的图片会出现在这里</strong><p>完成左侧设置后点击“生成图片”</p></div>}{!loading && images.length > 0 && <div className="image-grid">{images.map((image, index) => <figure className="generated-image-card" key={`${image.url}-${index}`}><button type="button" className="image-preview-trigger" onClick={() => setPreviewIndex(index)}><img src={image.url} alt={image.revisedPrompt || form.prompt} /></button><figcaption><span>图片 {index + 1}</span><a href={image.url} download={`ai-image-${index + 1}.png`} target="_blank" rel="noreferrer">下载 ↗</a></figcaption></figure>)}</div>}
+    </div></div>
+    <section className="image-history"><div className="image-history-header"><div><span className="block-label">历史记录</span><strong>{history.total ? `共 ${history.total} 条` : '暂无历史记录'}</strong></div><button type="button" className="text-button" onClick={() => loadHistory(history.page)} disabled={historyLoading}>刷新</button></div>{historyLoading && <div className="history-state">正在加载历史记录…</div>}{!historyLoading && historyError && <div className="history-state history-error">{historyError} <button type="button" className="text-button" onClick={() => loadHistory(history.page)}>重试</button></div>}{!historyLoading && !historyError && history.items.length === 0 && <div className="history-state">生成图片后，记录会显示在这里</div>}{!historyLoading && !historyError && history.items.length > 0 && <><div className="history-grid">{history.items.map((item) => <button type="button" className="history-card" key={item.id} onClick={() => selectHistory(item)}><span className="history-thumb">{item.images?.[0]?.url ? <img src={item.images[0].url} alt="" /> : <span>无预览</span>}</span><span className="history-card-body"><strong>{item.prompt}</strong><small>{item.status === 'succeeded' ? '已完成' : item.status || '处理中'} · {new Date(item.createdAt).toLocaleString('zh-CN')}</small></span></button>)}</div><div className="history-pagination"><button type="button" className="text-button" disabled={history.page <= 1 || historyLoading} onClick={() => loadHistory(history.page - 1)}>上一页</button><span>{history.page} / {Math.max(1, history.totalPages || 1)}</span><button type="button" className="text-button" disabled={history.page >= history.totalPages || historyLoading} onClick={() => loadHistory(history.page + 1)}>下一页</button></div></>}
+    </section>{previewImage && <div className="image-preview-backdrop" role="dialog" aria-modal="true" onClick={() => setPreviewIndex(null)}><div className="image-preview-dialog" onClick={(event) => event.stopPropagation()}><button type="button" className="image-preview-close" onClick={() => setPreviewIndex(null)} aria-label="关闭预览">×</button><img src={previewImage.url} alt={previewImage.revisedPrompt || form.prompt} /><div className="image-preview-actions"><button type="button" className="text-button" disabled={previewIndex <= 0} onClick={() => setPreviewIndex((index) => index - 1)}>上一张</button><span>{previewIndex + 1} / {images.length}</span><button type="button" className="text-button" disabled={previewIndex >= images.length - 1} onClick={() => setPreviewIndex((index) => index + 1)}>下一张</button><a href={previewImage.url} download="ai-image-preview.png">下载图片</a></div></div></div>}
+  </section>
+}
 
 export default App

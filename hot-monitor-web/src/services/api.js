@@ -14,6 +14,23 @@ const sourceNames = {
 const wait = (ms = 260) => new Promise((resolve) => setTimeout(resolve, ms))
 const response = (data, message = '') => ({ success: true, data, message, errorCode: null })
 
+// History image endpoints are returned as relative, authenticated URLs. When
+// the API is served from a separate origin, resolve those URLs against that
+// origin while keeping data URLs and already-absolute URLs untouched.
+function resolveAssetUrl(value) {
+  const source = String(value || '')
+  if (!source || /^(?:data:|https?:|blob:)/i.test(source)) return source
+  try {
+    const configured = new URL(API_BASE_URL, globalThis.location?.origin || 'http://localhost')
+    if (/^https?:$/i.test(configured.protocol) && /^https?:\/\//i.test(API_BASE_URL)) {
+      return new URL(source, configured.origin).toString()
+    }
+  } catch {
+    // Keep the original URL if the deployment supplied an invalid base URL.
+  }
+  return source
+}
+
 function parseBody(body) {
   if (!body) return {}
   if (typeof body === 'string') return JSON.parse(body)
@@ -108,6 +125,31 @@ function normalizeImageGeneration(data) {
   }
 }
 
+function normalizeImageHistory(data) {
+  if (!data) return data
+  const payload = data.items ? data : (data.data?.items ? data.data : data)
+  const items = Array.isArray(payload.items) ? payload.items : []
+  return {
+    ...payload,
+    items: items.map((item) => ({
+      ...item,
+      images: (Array.isArray(item.images) ? item.images : []).map((image) => {
+        const b64Json = image?.b64Json || image?.b64_json || null
+        return {
+          ...image,
+          url: resolveAssetUrl(image?.url || (b64Json ? `data:image/png;base64,${b64Json}` : '')),
+          b64Json,
+          revisedPrompt: image?.revisedPrompt || image?.revised_prompt || '',
+        }
+      }).filter((image) => image.url),
+    })),
+    page: Number(payload.page) || 1,
+    pageSize: Number(payload.pageSize) || 20,
+    total: Number(payload.total) || 0,
+    totalPages: Number(payload.totalPages) || 0,
+  }
+}
+
 function getStoredUser() {
   try {
     return JSON.parse(localStorage.getItem('hot-monitor-user'))
@@ -151,12 +193,30 @@ async function mockRequest(path, options = {}) {
     return response({ items, page: 1, pageSize: items.length, total: items.length })
   }
   if (path === '/image-generations') {
-    const count = Math.min(4, Math.max(1, Number(body.n) || 1))
+    // The image provider contract calls this field `count`; retain support for
+    // the previous `n` payload so local mocks mirror either request shape.
+    const count = Math.min(4, Math.max(1, Number(body.count ?? body.n) || 1))
     const images = Array.from({ length: count }, (_, index) => ({
       url: createMockImage(body.prompt, index, body.size),
       b64Json: null,
       revisedPrompt: body.prompt,
     }))
+    const history = {
+      id: `mock-history-${Date.now()}`,
+      requestId: `mock-image-${Date.now()}`,
+      prompt: body.prompt,
+      negativePrompt: body.negativePrompt || null,
+      model: body.model || 'mock-image-model',
+      size: body.size || '1024x1024',
+      count,
+      status: 'succeeded',
+      images,
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      errorCode: null,
+    }
+    const storedHistory = JSON.parse(localStorage.getItem('mock-image-history') || '[]')
+    localStorage.setItem('mock-image-history', JSON.stringify([history, ...storedHistory].slice(0, 50)))
     return response({
       requestId: `mock-image-${Date.now()}`,
       provider: 'mock',
@@ -164,6 +224,22 @@ async function mockRequest(path, options = {}) {
       images,
       createdAt: new Date().toISOString(),
     })
+  }
+  if (path === '/image-generations/polish') {
+    const prompt = String(body.prompt || '').trim()
+    if (!prompt) return response(null, '请输入提示词')
+    const polished = `${prompt}${body.style ? `，${body.style}风格` : ''}，画面主体清晰，构图平衡，光影自然，细节丰富`
+    return response({ prompt: polished.slice(0, 1000), negativePrompt: body.negativePrompt || '', model: 'mock-text-model', requestId: `mock-polish-${Date.now()}`, createdAt: new Date().toISOString() })
+  }
+  if (path === '/image-generations/history') {
+    const params = new URLSearchParams(options.query)
+    const page = Math.max(1, Number(params.get('page')) || 1)
+    const pageSize = Math.min(50, Math.max(1, Number(params.get('pageSize')) || 20))
+    const status = params.get('status')
+    const all = JSON.parse(localStorage.getItem('mock-image-history') || '[]')
+    const filtered = status ? all.filter((item) => item.status === status) : all
+    const start = (page - 1) * pageSize
+    return response({ items: filtered.slice(start, start + pageSize), page, pageSize, total: filtered.length, totalPages: Math.ceil(filtered.length / pageSize) })
   }
   return response(null)
 }
@@ -219,6 +295,14 @@ export const api = {
     const result = await request('/image-generations', { method: 'POST', body })
     return { ...result, data: normalizeImageGeneration(result.data) }
   },
+  imagePolish: async (body) => {
+    const result = await request('/image-generations/polish', { method: 'POST', body })
+    return result
+  },
+  imageHistory: async (query = {}) => {
+    const result = await request('/image-generations/history', { query })
+    return { ...result, data: normalizeImageHistory(result.data) }
+  },
 }
 
-export { normalizeHotItem, normalizeOverview, normalizeImageGeneration, normalizeAuthBody }
+export { normalizeHotItem, normalizeOverview, normalizeImageGeneration, normalizeImageHistory, normalizeAuthBody, resolveAssetUrl }
