@@ -5,7 +5,7 @@ export function setSocketServer(io) {
   ioInstance = io;
 }
 
-// 新热点入库并完成分析后发送给 dashboard 房间。
+// 新热点入库并完成分析后发送给仪表盘房间。
 export function emitHotItemNew(hotItem) {
   ioInstance?.to("dashboard").emit("hot-item:new", { hotItem });
 }

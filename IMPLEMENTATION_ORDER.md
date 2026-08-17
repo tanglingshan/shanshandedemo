@@ -1,20 +1,20 @@
-# Implementation Order
+# 实施顺序
 
-This order follows the AGENTS.md流水线 while respecting the user's preference that the dashboard be the first product surface inside the frontend phase.
+本顺序遵循 AGENTS.md 中的流水线，同时满足用户希望在前端阶段优先完成仪表盘产品界面的要求。
 
-1. Architecture lock
-2. Backend and frontend parallel scaffolding
-3. Backend foundation:
+1. 锁定架构
+2. 并行搭建后端和前端基础框架
+3. 后端基础能力：
    - Prisma schema
-   - session auth
-   - source registry
-   - hot item API
-   - Socket.io server
-4. Frontend foundation:
-   - app shell
-   - auth pages
-   - dashboard layout
-   - API client
-   - socket client
-5. Test/review pass
-6. Merge and deployment wiring for Sealos
+   - Session 认证
+   - 数据源注册表
+   - 热点 API
+   - Socket.io 服务端
+4. 前端基础能力：
+   - 应用外壳
+   - 认证页面
+   - 仪表盘布局
+   - API 客户端
+   - Socket 客户端
+5. 测试与审查
+6. 合并代码并接入 Sealos 部署配置

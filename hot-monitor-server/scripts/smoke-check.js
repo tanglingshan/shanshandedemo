@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-// Smoke Check 只验证项目骨架、配置导入和 Prisma schema，不访问真实外部服务。
+// 冒烟检查只验证项目结构、配置导入和 Prisma schema，不访问真实外部服务。
 const root = process.cwd();
 const requiredFiles = [
   "package.json",
@@ -23,7 +23,7 @@ const requiredFiles = [
 const missing = requiredFiles.filter((file) => !fs.existsSync(path.join(root, file)));
 
 if (missing.length > 0) {
-  console.error(`Smoke check failed. Missing files: ${missing.join(", ")}`);
+  console.error(`冒烟检查失败。缺少文件：${missing.join(", ")}`);
   process.exit(1);
 }
 
@@ -31,12 +31,12 @@ if (missing.length > 0) {
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 for (const script of ["dev", "start", "prisma:generate", "prisma:deploy"]) {
   if (!pkg.scripts?.[script]) {
-    console.error(`Smoke check failed. Missing npm script: ${script}`);
+    console.error(`冒烟检查失败。缺少 npm script：${script}`);
     process.exit(1);
   }
 }
 
-// 为测试环境补充安全的临时默认值，避免 smoke 检查依赖本地真实密钥。
+// 为测试环境补充安全的临时默认值，避免冒烟检查依赖本地真实密钥。
 process.env.DATABASE_URL ||= "postgresql://user:password@localhost:5432/hot_monitor?schema=public";
 process.env.SESSION_SECRET ||= "smoke-test-session-secret";
 process.env.OPENAI_API_KEY ||= "smoke-test-openai-key";
@@ -56,7 +56,7 @@ if (prismaValidate.status !== 0) {
   process.exit(prismaValidate.status || 1);
 }
 
-// 用空 Session 中间件创建 Express 应用，验证核心模块可以正常导入和组装。
+// 使用空 Session 中间件创建 Express 应用，验证核心模块可以正常导入和组装。
 const noopSession = (_req, _res, next) => next();
 const [{ createApp }, { router }, { env }] = await Promise.all([
   import("../src/app.js"),
@@ -65,10 +65,10 @@ const [{ createApp }, { router }, { env }] = await Promise.all([
 ]);
 
 if (typeof createApp !== "function" || typeof router !== "function" || !env.openaiApiKey) {
-  console.error("Smoke check failed. App, router, or env import is invalid.");
+  console.error("冒烟检查失败。App、router 或 env 导入无效。");
   process.exit(1);
 }
 
 createApp(noopSession);
 
-console.log("Smoke check passed.");
+console.log("冒烟检查通过。");

@@ -8,7 +8,7 @@ import { prisma } from "../lib/prisma.js";
 export const authRouter = Router();
 
 function regenerateSession(req) {
-  // 登录成功后重新生成 Session，降低 Session Fixation 风险。
+  // 登录成功后重新生成 Session，降低会话固定攻击风险。
   return new Promise((resolve, reject) => {
     req.session.regenerate((error) => (error ? reject(error) : resolve()));
   });

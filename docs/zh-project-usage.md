@@ -18,7 +18,7 @@
 ## 2. 当前目录说明
 
 ```text
-ag/
+./                       # 当前仓库根目录
   hot-monitor-web/       # 前端项目，React + Vite
   hot-monitor-server/    # 后端项目，Express + Prisma
   docs/                  # 中文使用说明和架构补充文档

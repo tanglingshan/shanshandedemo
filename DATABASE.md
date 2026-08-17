@@ -1,8 +1,9 @@
-# Database Design
+# 数据库设计
 
-## Tables
+## 数据表
 
-### users
+### users（用户）
+
 - `id`
 - `email`
 - `password_hash`
@@ -12,12 +13,14 @@
 - `created_at`
 - `updated_at`
 
-Indexes:
-- unique on `email`
+索引：
 
-### sources
+- `email` 唯一索引
+
+### sources（数据源）
+
 - `id`
-- `code` (`hackernews`, `bing`, `bilibili`)
+- `code`（`hackernews`、`bing`、`bilibili`）
 - `name`
 - `type`
 - `enabled`
@@ -26,10 +29,12 @@ Indexes:
 - `created_at`
 - `updated_at`
 
-Indexes:
-- unique on `code`
+索引：
 
-### hot_items
+- `code` 唯一索引
+
+### hot_items（热点）
+
 - `id`
 - `title`
 - `canonical_url`
@@ -47,13 +52,15 @@ Indexes:
 - `created_at`
 - `updated_at`
 
-Indexes:
-- unique on `source_code + source_item_id`
-- unique on `canonical_url` when present
-- index on `published_at`
-- index on `hot_score`
+索引：
 
-### hot_item_sources
+- `source_code + source_item_id` 唯一索引
+- `canonical_url`（有值时）唯一索引
+- `published_at` 索引
+- `hot_score` 索引
+
+### hot_item_sources（热点来源追踪）
+
 - `id`
 - `hot_item_id`
 - `source_code`
@@ -64,10 +71,12 @@ Indexes:
 - `raw_payload`
 - `collected_at`
 
-Indexes:
-- unique on `source_code + source_item_id`
+索引：
 
-### ai_analyses
+- `source_code + source_item_id` 唯一索引
+
+### ai_analyses（AI 分析结果）
+
 - `id`
 - `hot_item_id`
 - `provider`
@@ -81,10 +90,12 @@ Indexes:
 - `analysis_payload`
 - `created_at`
 
-Indexes:
-- unique on `hot_item_id`
+索引：
 
-### collector_runs
+- `hot_item_id` 唯一索引
+
+### collector_runs（采集运行记录）
+
 - `id`
 - `source_code`
 - `status`
@@ -97,5 +108,6 @@ Indexes:
 - `error_message`
 - `created_at`
 
-## Session Store
-Use PostgreSQL-backed session storage for `express-session`. The session table is infrastructure-managed and not part of the business domain model.
+## Session 存储
+
+`express-session` 使用 PostgreSQL 持久化 Session。Session 表由基础设施管理，不属于业务领域模型。

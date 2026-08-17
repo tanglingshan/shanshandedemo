@@ -1,13 +1,15 @@
-# Frontend Minimum Surface
+# 前端最小界面范围
 
-Repo: `hot-monitor-web`
+仓库：`hot-monitor-web`
 
-## Pages
+## 页面
+
 - `LoginPage`
 - `RegisterPage`
 - `DashboardPage`
 
-## Dashboard Layout
+## 仪表盘布局
+
 - `AppShell`
 - `Sidebar`
 - `TopBar`
@@ -18,7 +20,8 @@ Repo: `hot-monitor-web`
 - `SocketStatusBadge`
 - `AuthGuard`
 
-## Shared UI Units
+## 共享 UI 单元
+
 - `Button`
 - `Input`
 - `Select`
@@ -29,12 +32,14 @@ Repo: `hot-monitor-web`
 - `ErrorState`
 - `Toast`
 
-## Minimum Data Flow
-- load current user
-- load overview stats
-- load hot item list
-- connect socket
-- append new items on push
+## 最小数据流
 
-## Style Rule
-Light dashboard, dense information layout, plain CSS only, no marketing hero.
+- 加载当前用户
+- 加载概览统计
+- 加载热点列表
+- 建立 Socket 连接
+- 收到推送后追加新热点
+
+## 样式规则
+
+采用浅色仪表盘和高密度信息布局，仅使用普通 CSS，不添加营销展示区（Hero）。

@@ -5,7 +5,7 @@
 ## 1. 项目位置
 
 ```text
-C:/Users/cmd/Desktop/ag/hot-monitor-web
+./hot-monitor-web
 ```
 
 ## 2. 技术栈
@@ -21,7 +21,7 @@ C:/Users/cmd/Desktop/ag/hot-monitor-web
 ## 3. 安装依赖
 
 ```bash
-cd C:/Users/cmd/Desktop/ag/hot-monitor-web
+cd hot-monitor-web
 npm install
 ```
 

@@ -1,55 +1,77 @@
-# Socket Events
+# Socket 事件
 
-## Client to Server
+## 客户端到服务端
 
 ### `dashboard:join`
-Payload:
+
+负载：
+
 - `userId`
 - `filters`
 
 ### `dashboard:leave`
-Payload:
+
+负载：
+
 - `userId`
 
 ### `hot-items:subscribe`
-Payload:
+
+负载：
+
 - `keywords`
 - `sources`
 
 ### `hot-items:unsubscribe`
-Payload:
+
+负载：
+
 - `keywords`
 
-## Server to Client
+## 服务端到客户端
 
 ### `server:ready`
-Payload:
+
+负载：
+
 - `timestamp`
 
 ### `hot-item:new`
-Payload:
+
+负载：
+
 - `hotItem`
 
 ### `hot-item:update`
-Payload:
+
+负载：
+
 - `hotItem`
 
 ### `hot-item:batch`
-Payload:
+
+负载：
+
 - `items`
 
 ### `stats:update`
-Payload:
+
+负载：
+
 - `overview`
 
 ### `collector:run-status`
-Payload:
+
+负载：
+
 - `sourceCode`
 - `status`
 - `startedAt`
 - `finishedAt`
 
 ### `server:error`
-Payload:
+
+负载：
+
 - `message`
 - `code`
