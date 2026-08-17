@@ -2,7 +2,7 @@
 
 AI 热点监控工具的 React 19 前端 MVP，使用 Vite、JavaScript 和普通 CSS。
 
-## Run
+## 开发运行
 
 ```bash
 npm install
@@ -10,9 +10,9 @@ copy .env.example .env
 npm run dev
 ```
 
-默认使用 mock service，打开后即可体验注册、登录、仪表盘筛选和实时热点推送。
+默认使用模拟服务，启动后即可体验注册、登录、仪表盘筛选和实时热点推送。
 
-## Production build
+## 生产构建
 
 ```bash
 npm run build

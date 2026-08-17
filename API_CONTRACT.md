@@ -1,39 +1,51 @@
-# API Contract
+# API 约定
 
-Base path: `/api`
+基础路径：`/api`
 
-## Auth
+## 认证
 
 ### POST `/auth/register`
-Request:
+
+请求参数：
+
 - `email`
 - `password`
 - `confirmPassword`
 
-Response:
-- user summary
+响应：
+
+- 用户摘要
 
 ### POST `/auth/login`
-Request:
+
+请求参数：
+
 - `email`
 - `password`
 
-Response:
-- user summary
-- session cookie set by server
+响应：
+
+- 用户摘要
+- 服务端设置的 Session Cookie
 
 ### POST `/auth/logout`
-Response:
-- session cleared
+
+响应：
+
+- Session 已清除
 
 ### GET `/auth/me`
-Response:
-- current user summary or `401`
 
-## Dashboard
+响应：
+
+- 当前用户摘要，未认证时返回 `401`
+
+## 仪表盘
 
 ### GET `/hot-items`
-Query:
+
+查询参数：
+
 - `page`
 - `pageSize`
 - `source`
@@ -43,41 +55,53 @@ Query:
 - `to`
 - `importanceLevel`
 
-Response:
-- paged hot item list
+响应：
+
+- 分页后的热点列表
 
 ### GET `/hot-items/:id`
-Response:
-- hot item detail
-- AI analysis detail
-- source traces
+
+响应：
+
+- 热点详情
+- AI 分析详情
+- 来源追踪信息
 
 ### GET `/stats/overview`
-Response:
-- today count
-- source count
-- analyzed count
-- high-importance count
-- latest collect time
+
+响应：
+
+- 今日热点数量
+- 数据源数量
+- 已分析数量
+- 高重要性热点数量
+- 最近采集时间
 
 ### GET `/sources`
-Response:
-- enabled sources and labels
+
+响应：
+
+- 已启用的数据源及其标签
 
 ### GET `/health`
-Response:
-- service health and version
 
-## Response Shape
-Standardize all JSON responses as:
+响应：
+
+- 服务健康状态和版本
+
+## 响应结构
+
+所有 JSON 响应统一包含以下字段：
+
 - `success`
 - `data`
 - `message`
 - `errorCode`
 
-## Error Cases
-- `401` unauthenticated
-- `403` forbidden
-- `404` not found
-- `422` validation error
-- `500` internal error
+## 错误情况
+
+- `401`：未认证
+- `403`：无权限
+- `404`：资源不存在
+- `422`：参数校验错误
+- `500`：内部错误

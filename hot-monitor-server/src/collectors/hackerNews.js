@@ -1,4 +1,4 @@
-// Hacker News 采集器：通过 Algolia 的公开接口获取最新 story。
+// Hacker News 采集器：通过 Algolia 的公开接口获取最新文章。
 export async function collectHackerNews() {
   const response = await fetch("https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=10");
 

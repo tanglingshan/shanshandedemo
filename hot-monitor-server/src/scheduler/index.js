@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { runAllCollectors } from "../services/collectorService.js";
 
-// timer 用于避免重复注册定时器，running 用于防止采集任务重叠执行。
+// 定时器用于避免重复注册定时器，运行状态变量（running）用于防止采集任务重叠执行。
 let timer = null;
 let running = false;
 

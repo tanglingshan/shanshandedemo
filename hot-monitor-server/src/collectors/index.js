@@ -4,7 +4,7 @@ import { collectBing } from "./bing.js";
 import { collectHackerNews } from "./hackerNews.js";
 
 export const collectors = {
-  // key 必须与数据库 sources.code 保持一致。
+  // 键必须与数据库 sources.code 保持一致。
   hackernews: collectHackerNews,
   bing: collectBing,
   bilibili: collectBilibili

@@ -28,7 +28,7 @@ export function setupSocket(httpServer, sessionMiddleware) {
     socket.emit("server:ready", { timestamp: new Date().toISOString() });
 
     socket.on("dashboard:join", () => {
-      // dashboard 房间用于接收所有热点和统计更新。
+      // 仪表盘房间用于接收所有热点和统计更新。
       socket.join("dashboard");
     });
 
