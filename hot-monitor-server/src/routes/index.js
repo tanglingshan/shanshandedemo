@@ -5,6 +5,7 @@ import { healthRouter } from "./health.routes.js";
 import { hotItemsRouter } from "./hotItems.routes.js";
 import { sourcesRouter } from "./sources.routes.js";
 import { statsRouter } from "./stats.routes.js";
+import { imageGenerationRouter } from "./imageGeneration.routes.js";
 
 export const router = Router();
 
@@ -13,3 +14,4 @@ router.use("/health", healthRouter);
 router.use("/hot-items", hotItemsRouter);
 router.use("/sources", sourcesRouter);
 router.use("/stats", statsRouter);
+router.use("/image-generations", imageGenerationRouter);

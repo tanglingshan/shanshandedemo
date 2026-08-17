@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './services/api'
 import { createDashboardSocket } from './services/socket'
+import './image-generation.css'
 
 const navItems = [
   { key: 'all', label: '总览', mark: '◈' },
@@ -9,22 +10,35 @@ const navItems = [
   { key: 'bilibili', label: 'B站', mark: '播' },
   { key: 'ai', label: 'AI 推荐', mark: '✦' },
   { key: 'high', label: '高热度', mark: '↗' },
+  { key: 'image', label: 'AI 生图', mark: '▧' },
 ]
 
 function App() {
   const [page, setPage] = useState('login')
   const [user, setUser] = useState(null)
+  const authCheckRef = useRef({ requestId: 0, resolved: false })
 
   useEffect(() => {
+    // StrictMode runs effects twice in development. Ignore stale auth probes
+    // so an initial /auth/me failure cannot overwrite a successful login.
+    const requestId = ++authCheckRef.current.requestId
     api.me().then((result) => {
+      if (requestId !== authCheckRef.current.requestId || authCheckRef.current.resolved) return
+      authCheckRef.current.resolved = true
       if (result.data) {
         setUser(result.data)
         setPage('dashboard')
       }
-    }).catch(() => setPage('login'))
+    }).catch(() => {
+      if (requestId === authCheckRef.current.requestId && !authCheckRef.current.resolved) {
+        authCheckRef.current.resolved = true
+        setPage('login')
+      }
+    })
   }, [])
 
   const handleAuth = (nextUser) => {
+    authCheckRef.current.resolved = true
     setUser(nextUser)
     setPage('dashboard')
   }
@@ -39,12 +53,15 @@ function AuthPage({ mode, onSuccess, onSwitch }) {
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const submitLockRef = useRef(false)
 
   async function submit(event) {
     event.preventDefault()
+    if (submitLockRef.current) return
     setError('')
     if (!form.email || !form.password) return setError('请输入邮箱和密码')
     if (!isLogin && form.password !== form.confirmPassword) return setError('两次输入的密码不一致')
+    submitLockRef.current = true
     setLoading(true)
     try {
       const result = isLogin ? await api.login(form) : await api.register(form)
@@ -52,6 +69,7 @@ function AuthPage({ mode, onSuccess, onSwitch }) {
     } catch (requestError) {
       setError(requestError.message)
     } finally {
+      submitLockRef.current = false
       setLoading(false)
     }
   }
@@ -109,9 +127,14 @@ function Dashboard({ user, onLogout }) {
     setOverview(overviewResult.data)
   }
 
-  useEffect(() => { loadData().catch((error) => setToast(error.message)) }, [source, sort, keyword])
+  useEffect(() => {
+    if (activeNav === 'image') return undefined
+    loadData().catch((error) => setToast(error.message))
+    return undefined
+  }, [source, sort, keyword, activeNav])
 
   useEffect(() => {
+    if (activeNav === 'image') return undefined
     const socket = createDashboardSocket({
       userId: user?.id,
       filters: { source },
@@ -122,7 +145,7 @@ function Dashboard({ user, onLogout }) {
       onError: setToast,
     })
     return () => socket.disconnect()
-  }, [user?.id, source])
+  }, [user?.id, source, activeNav])
 
   const visibleItems = useMemo(() => {
     if (activeNav === 'high') return items.filter((item) => item.rawScore > 600)
@@ -132,21 +155,27 @@ function Dashboard({ user, onLogout }) {
 
   function selectNav(key) {
     setActiveNav(key)
+    if (key === 'image') setToast('')
     if (['hackernews', 'bing', 'bilibili'].includes(key)) setSource(key)
     if (key === 'all') setSource('all')
   }
+
+  const imageWorkspace = activeNav === 'image'
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand"><div className="brand-icon small">H</div><div><strong>Hot Monitor</strong><span>AI SIGNAL DESK</span></div></div>
         <div className="nav-section-label">工作台</div>
-        <nav>{navItems.map((item) => <button type="button" key={item.key} className={`nav-item ${activeNav === item.key ? 'active' : ''}`} onClick={() => selectNav(item.key)}><span className="nav-mark">{item.mark}</span>{item.label}{item.key === 'all' && <i>实时</i>}</button>)}</nav>
+        <nav>{navItems.filter((item) => item.key !== 'image').map((item) => <button type="button" key={item.key} className={`nav-item ${activeNav === item.key ? 'active' : ''}`} onClick={() => selectNav(item.key)}><span className="nav-mark">{item.mark}</span>{item.label}{item.key === 'all' && <i>实时</i>}</button>)}</nav>
+        <div className="nav-section-label nav-section-tools">创作工具</div>
+        <nav>{navItems.filter((item) => item.key === 'image').map((item) => <button type="button" key={item.key} className={`nav-item ${activeNav === item.key ? 'active' : ''}`} onClick={() => selectNav(item.key)}><span className="nav-mark">{item.mark}</span>{item.label}</button>)}</nav>
         <div className="sidebar-footer"><div className={`status-dot ${socketStatus}`} /><div><strong>{socketStatus === 'connected' ? '实时连接正常' : '正在连接'}</strong><span>每 5 分钟自动采集</span></div></div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><div><p className="eyebrow">OVERVIEW / REAL-TIME FEED</p><h1>热点总览</h1></div><div className="topbar-actions"><button type="button" className="icon-button" title="刷新数据" onClick={() => loadData()}>↻</button><div className="profile"><div className="avatar">{user?.email?.slice(0, 1).toUpperCase() || 'D'}</div><div><strong>{user?.email || 'demo@hotmonitor.dev'}</strong><span>观察员</span></div><button type="button" className="logout-button" onClick={onLogout}>退出</button></div></div></header>
-        {newCount > 0 && <button type="button" className="new-items-banner" onClick={() => { setNewCount(0); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>↓ 有 {newCount} 条新热点，点击查看</button>}
+        <header className="topbar"><div><p className="eyebrow">{imageWorkspace ? 'CREATIVE TOOLS / AI IMAGE' : 'OVERVIEW / REAL-TIME FEED'}</p><h1>{imageWorkspace ? 'AI 生图' : '热点总览'}</h1></div><div className="topbar-actions">{!imageWorkspace && <button type="button" className="icon-button" title="刷新数据" onClick={() => loadData()}>↻</button>}<div className="profile"><div className="avatar">{user?.email?.slice(0, 1).toUpperCase() || 'D'}</div><div><strong>{user?.email || 'demo@hotmonitor.dev'}</strong><span>观察员</span></div><button type="button" className="logout-button" onClick={onLogout}>退出</button></div></div></header>
+        {!imageWorkspace && newCount > 0 && <button type="button" className="new-items-banner" onClick={() => { setNewCount(0); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>↓ 有 {newCount} 条新热点，点击查看</button>}
+        {imageWorkspace ? <ImageGenerationWorkspace /> : <>
         <section className="overview-grid">
           <MetricCard label="今日新增热点" value={overview.todayCount ?? '--'} note="较昨日 +12.8%" tone="blue" />
           <MetricCard label="活跃数据源" value={overview.sourceCount ?? '--'} note="HackerNews / Bing / B站" tone="green" />
@@ -158,10 +187,93 @@ function Dashboard({ user, onLogout }) {
           <div className="filters-bar"><div className="search-field"><span>⌕</span><input placeholder="搜索标题或摘要..." value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div><select value={source} onChange={(event) => { setSource(event.target.value); setActiveNav(event.target.value) }}><option value="all">全部来源</option><option value="hackernews">HackerNews</option><option value="bing">Bing</option><option value="bilibili">B站</option></select><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="latest">最新采集</option><option value="score">热度最高</option><option value="ai">AI 推荐</option></select><button type="button" className="filter-button" onClick={() => { setKeyword(''); setSource('all'); setSort('latest'); setActiveNav('all') }}>清除筛选</button></div>
           <div className="table-wrap"><table><thead><tr><th>热点内容</th><th>来源</th><th>AI 摘要</th><th>热度</th><th>相关性</th><th>采集时间</th><th /></tr></thead><tbody>{visibleItems.map((item) => <HotItemRow key={item.id} item={item} onClick={() => setSelected(item)} />)}</tbody></table>{visibleItems.length === 0 && <div className="empty-state"><strong>没有匹配的热点</strong><span>试试清除筛选条件或换一个关键词。</span></div>}</div>
         </section>
+        </>}
       </main>
       {selected && <DetailDrawer item={selected} onClose={() => setSelected(null)} />}
       {toast && <button className="toast" onClick={() => setToast('')}>{toast}<span>×</span></button>}
     </div>
+  )
+}
+
+function ImageGenerationWorkspace() {
+  const [form, setForm] = useState({ prompt: '', negativePrompt: '', size: '1024x1024', n: 1 })
+  const [images, setImages] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    const prompt = form.prompt.trim()
+    if (!prompt) {
+      setError('请输入图片描述')
+      return
+    }
+    if (prompt.length > 1000) {
+      setError('提示词不能超过 1000 个字符')
+      return
+    }
+    setLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await api.imageGenerate({
+        prompt,
+        negativePrompt: form.negativePrompt.trim() || undefined,
+        size: form.size,
+        n: Number(form.n),
+      })
+      const nextImages = result.data?.images || []
+      setImages(nextImages)
+      setNotice(nextImages.length ? `已生成 ${nextImages.length} 张图片` : '服务未返回图片，请稍后重试')
+      if (!nextImages.length) setError('服务未返回图片，请稍后重试')
+    } catch (requestError) {
+      setImages([])
+      setError(requestError.message || '生图失败，请稍后重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="image-workspace">
+      <div className="image-intro">
+        <p className="eyebrow">PROMPT TO IMAGE</p>
+        <h2>把想法变成画面</h2>
+        <p>输入清晰的画面描述，选择尺寸和生成数量，结果会显示在右侧工作区。</p>
+      </div>
+      <div className="image-workspace-grid">
+        <form className="image-form" onSubmit={submit}>
+          <label>提示词 <span className="field-hint">{form.prompt.length}/1000</span>
+            <textarea rows="7" maxLength="1000" value={form.prompt} onChange={(event) => updateField('prompt', event.target.value)} placeholder="例如：一座被云海环绕的未来城市，清晨柔和的金色光线，电影感构图" />
+          </label>
+          <label>反向提示词 <span className="optional-label">可选</span>
+            <input value={form.negativePrompt} onChange={(event) => updateField('negativePrompt', event.target.value)} placeholder="例如：模糊、低质量、文字水印" />
+          </label>
+          <div className="image-form-row">
+            <label>图片尺寸
+              <select value={form.size} onChange={(event) => updateField('size', event.target.value)}><option value="1024x1024">1024 × 1024</option><option value="1536x1024">1536 × 1024</option><option value="1024x1536">1024 × 1536</option></select>
+            </label>
+            <label>生成数量
+              <select value={form.n} onChange={(event) => updateField('n', event.target.value)}><option value="1">1 张</option><option value="2">2 张</option><option value="3">3 张</option><option value="4">4 张</option></select>
+            </label>
+          </div>
+          {error && <div className="form-error image-error">{error}</div>}
+          <button type="submit" className="primary-button image-submit" disabled={loading}>{loading ? '正在生成…' : '生成图片'}</button>
+          <p className="image-form-note">生图服务使用独立的服务端 API 配置，前端不会接触供应商密钥。</p>
+        </form>
+        <div className="image-results" aria-live="polite">
+          <div className="image-results-header"><div><span className="block-label">生成结果</span><strong>{loading ? '正在渲染...' : notice || '等待一次生成'}</strong></div>{images.length > 0 && <button type="button" className="text-button" onClick={() => setImages([])}>清空</button>}</div>
+          {loading && <div className="image-loading"><span className="loading-spinner" /><p>模型正在绘制你的画面</p><small>这通常需要几秒钟，请稍候</small></div>}
+          {!loading && images.length === 0 && <div className="image-empty"><span className="empty-image-mark">✦</span><strong>你的图片会出现在这里</strong><p>完成左侧设置后点击“生成图片”</p></div>}
+          {!loading && images.length > 0 && <div className="image-grid">{images.map((image, index) => <figure className="generated-image-card" key={`${image.url}-${index}`}><img src={image.url} alt={image.revisedPrompt || form.prompt} /><figcaption><span>图片 {index + 1}</span><a href={image.url} download={`ai-image-${index + 1}.png`} target="_blank" rel="noreferrer">下载 ↓</a></figcaption></figure>)}</div>}
+        </div>
+      </div>
+    </section>
   )
 }
 

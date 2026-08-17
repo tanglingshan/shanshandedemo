@@ -24,6 +24,23 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function isSha256Credential(value) {
+  return /^[a-f0-9]{64}$/i.test(value);
+}
+
+function resolveCredential(input = {}) {
+  const digest = input.passwordDigest ?? input.credential;
+  if (digest !== undefined && digest !== null && digest !== "") {
+    const normalizedDigest = String(digest);
+    if (!isSha256Credential(normalizedDigest)) {
+      throw validationError("password digest has an invalid format");
+    }
+    return normalizedDigest;
+  }
+
+  return input.password;
+}
+
 function validateEmailAndPassword(email, password) {
   const normalizedEmail = normalizeEmail(email);
 
@@ -40,17 +57,22 @@ function validateEmailAndPassword(email, password) {
 }
 
 export async function register(input) {
-  const { email, password } = validateEmailAndPassword(input.email, input.password);
+  const { email, password } = validateEmailAndPassword(input.email, resolveCredential(input));
 
-  if (String(password).length < 8) {
+  if (!isSha256Credential(password) && String(password).length < 8) {
     throw validationError("密码长度至少为 8 位");
   }
 
-  if (input.confirmPassword === undefined) {
+  const confirmPassword = input.confirmPasswordDigest ?? input.confirmPassword;
+  if (confirmPassword === undefined) {
     throw validationError("请输入确认密码");
   }
 
-  if (String(input.confirmPassword) !== password) {
+  if (input.confirmPasswordDigest !== undefined && !isSha256Credential(String(confirmPassword))) {
+    throw validationError("password digest has an invalid format");
+  }
+
+  if (String(confirmPassword) !== password) {
     throw validationError("两次输入的密码不一致");
   }
 
@@ -72,7 +94,7 @@ export async function register(input) {
 }
 
 export async function login(input) {
-  const { email, password } = validateEmailAndPassword(input.email, input.password);
+  const { email, password } = validateEmailAndPassword(input.email, resolveCredential(input));
   const user = await prisma.user.findUnique({ where: { email } });
 
   if (!user || user.status !== "active") {

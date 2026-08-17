@@ -14,6 +14,12 @@ function regenerateSession(req) {
   });
 }
 
+function saveSession(req) {
+  return new Promise((resolve, reject) => {
+    req.session.save((error) => (error ? reject(error) : resolve()));
+  });
+}
+
 function destroySession(req) {
   // 退出登录时销毁服务端 Session。
   return new Promise((resolve, reject) => {
@@ -27,6 +33,7 @@ authRouter.post("/register", async (req, res, next) => {
     // 注册成功后自动建立登录态，用户无需再次登录。
     await regenerateSession(req);
     req.session.userId = user.id;
+    await saveSession(req);
     res.status(201).json(success(toUserSummary(user), "Registered"));
   } catch (error) {
     next(error);
@@ -39,6 +46,7 @@ authRouter.post("/login", async (req, res, next) => {
     // 登录成功后只把 userId 写入 Session，不把敏感信息写入 Cookie。
     await regenerateSession(req);
     req.session.userId = user.id;
+    await saveSession(req);
     res.json(success(toUserSummary(user), "Logged in"));
   } catch (error) {
     next(error);
