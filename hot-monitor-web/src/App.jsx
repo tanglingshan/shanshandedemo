@@ -331,6 +331,7 @@ function ImageGenerationWorkspace() {
 
 function MetricCard({ label, value, note, tone }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}>◈</div><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div><b className="metric-trend">↗</b></article> }
 function hotItemAIStateLabel(settings) {
+  settings = settings || {}
   if (settings.deploymentAllowed === false) return '部署未允许'
   if (settings.configured === false) return '配置缺失'
   if (!settings?.requestedEnabled) return '已关闭'
@@ -338,6 +339,7 @@ function hotItemAIStateLabel(settings) {
 }
 
 function hotItemAIStateClass(settings) {
+  settings = settings || {}
   if (settings.deploymentAllowed === false) return 'blocked'
   if (settings.configured === false) return 'missing'
   if (!settings?.requestedEnabled) return 'off'
