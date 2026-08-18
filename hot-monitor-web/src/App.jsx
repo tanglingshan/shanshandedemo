@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './services/api'
 import { createDashboardSocket } from './services/socket'
 import './image-generation.css'
+import './hot-ai.css'
 
 const navItems = [
   { key: 'all', label: '总览', mark: '◈' },
@@ -17,6 +18,16 @@ function App() {
   const [page, setPage] = useState('login')
   const [user, setUser] = useState(null)
   const authCheckRef = useRef({ requestId: 0, resolved: false })
+
+  useEffect(() => {
+    const handleExpired = () => {
+      authCheckRef.current.resolved = true
+      setUser(null)
+      setPage('login')
+    }
+    window.addEventListener('auth:expired', handleExpired)
+    return () => window.removeEventListener('auth:expired', handleExpired)
+  }, [])
 
   useEffect(() => {
     // StrictMode runs effects twice in development. Ignore stale auth probes
@@ -50,7 +61,7 @@ function App() {
 
 function AuthPage({ mode, onSuccess, onSwitch }) {
   const isLogin = mode === 'login'
-  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '' })
+  const [form, setForm] = useState({ account: '', email: '', password: '', confirmPassword: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const submitLockRef = useRef(false)
@@ -59,12 +70,15 @@ function AuthPage({ mode, onSuccess, onSwitch }) {
     event.preventDefault()
     if (submitLockRef.current) return
     setError('')
-    if (!form.email || !form.password) return setError('请输入邮箱和密码')
+    const account = form.account.trim()
+    if (!account || !form.password) return setError('请输入账号和密码')
     if (!isLogin && form.password !== form.confirmPassword) return setError('两次输入的密码不一致')
     submitLockRef.current = true
     setLoading(true)
     try {
-      const result = isLogin ? await api.login(form) : await api.register(form)
+      const result = isLogin
+        ? await api.login({ ...form, account, email: account })
+        : await api.register({ ...form, account, email: account })
       onSuccess(result.data)
     } catch (requestError) {
       setError(requestError.message)
@@ -90,7 +104,7 @@ function AuthPage({ mode, onSuccess, onSwitch }) {
           <p>{isLogin ? '掌握实时信息流，及时发现值得关注的变化。' : '注册后即可进入实时热点仪表盘。'}</p>
         </div>
         <form className="auth-form" onSubmit={submit}>
-          <label>邮箱地址<input type="email" autoComplete="email" placeholder="you@example.com" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+          <label>账号<input type="text" autoComplete="username" placeholder="请输入账号、手机号或邮箱" value={form.account} onChange={(event) => setForm({ ...form, account: event.target.value })} /></label>
           <label>密码<input type="password" autoComplete={isLogin ? 'current-password' : 'new-password'} placeholder="请输入密码" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
           {!isLogin && <label>确认密码<input type="password" autoComplete="new-password" placeholder="再次输入密码" value={form.confirmPassword} onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })} /></label>}
           {error && <div className="form-error">{error}</div>}
@@ -120,6 +134,10 @@ function Dashboard({ user, onLogout }) {
   const [newCount, setNewCount] = useState(0)
   const [selected, setSelected] = useState(null)
   const [toast, setToast] = useState('')
+  const [aiSettings, setAiSettings] = useState(null)
+  const [aiSettingsLoading, setAiSettingsLoading] = useState(true)
+  const [aiSettingsError, setAiSettingsError] = useState('')
+  const [aiToggleLoading, setAiToggleLoading] = useState(false)
 
   async function loadData() {
     const [itemResult, overviewResult] = await Promise.all([api.hotItems({ source, sort, keyword }), api.overview()])
@@ -132,6 +150,35 @@ function Dashboard({ user, onLogout }) {
     loadData().catch((error) => setToast(error.message))
     return undefined
   }, [source, sort, keyword, activeNav])
+
+  useEffect(() => {
+    if (activeNav === 'image') return undefined
+    let mounted = true
+    setAiSettingsLoading(true)
+    setAiSettingsError('')
+    api.hotItemAISettings().then((result) => {
+      if (mounted) setAiSettings(result.data)
+    }).catch((error) => {
+      if (mounted) setAiSettingsError(error.message || 'AI 开关状态加载失败')
+    }).finally(() => {
+      if (mounted) setAiSettingsLoading(false)
+    })
+    return () => { mounted = false }
+  }, [activeNav])
+
+  async function toggleHotItemAI() {
+    if (!aiSettings || aiToggleLoading) return
+    setAiToggleLoading(true)
+    setAiSettingsError('')
+    try {
+      const result = await api.updateHotItemAISettings(!aiSettings.requestedEnabled)
+      setAiSettings(result.data)
+    } catch (error) {
+      setAiSettingsError(error.message || 'AI 开关更新失败')
+    } finally {
+      setAiToggleLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (activeNav === 'image') return undefined
@@ -183,7 +230,8 @@ function Dashboard({ user, onLogout }) {
           <MetricCard label="高重要性事件" value={overview.highImportanceCount ?? '--'} note="建议优先关注" tone="orange" />
         </section>
         <section className="content-section">
-          <div className="section-heading"><div><h2>实时热点流</h2><p>来自多个公开来源的 AI 筛选信息</p></div><span className="last-updated"><span className="pulse" />最后采集 {overview.latestCollectTime || '—'}</span></div>
+          <div className="section-heading"><div><h2>实时热点流</h2><p>来自多个公开来源的 AI 筛选信息</p></div><div className="hot-ai-controls"><div className="hot-ai-status"><strong>热点 AI 分析</strong><span className={`hot-ai-state ${hotItemAIStateClass(aiSettings)}`}>{aiSettingsLoading ? '读取中…' : aiSettingsError ? '状态未知' : hotItemAIStateLabel(aiSettings)}</span></div><label className="switch-control" title="开启后新采集的热点会调用 AI 分析"><input type="checkbox" checked={Boolean(aiSettings?.requestedEnabled)} onChange={toggleHotItemAI} disabled={aiSettingsLoading || aiToggleLoading || Boolean(aiSettingsError) || (!aiSettings?.requestedEnabled && (aiSettings?.deploymentAllowed === false || aiSettings?.configured === false))} /><span className="switch-track" aria-hidden="true" /></label><span className="last-updated"><span className="pulse" />最后采集 {overview.latestCollectTime || '—'}</span></div></div>
+          {aiSettingsError && <div className="hot-ai-error">{aiSettingsError} <button type="button" className="text-button" onClick={() => { setAiSettingsError(''); setAiSettingsLoading(true); api.hotItemAISettings().then((result) => setAiSettings(result.data)).catch((error) => setAiSettingsError(error.message || 'AI 开关状态加载失败')).finally(() => setAiSettingsLoading(false)) }}>重试</button></div>}
           <div className="filters-bar"><div className="search-field"><span>⌕</span><input placeholder="搜索标题或摘要..." value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div><select value={source} onChange={(event) => { setSource(event.target.value); setActiveNav(event.target.value) }}><option value="all">全部来源</option><option value="hackernews">HackerNews</option><option value="bing">Bing</option><option value="bilibili">B站</option></select><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="latest">最新采集</option><option value="score">热度最高</option><option value="ai">AI 推荐</option></select><button type="button" className="filter-button" onClick={() => { setKeyword(''); setSource('all'); setSort('latest'); setActiveNav('all') }}>清除筛选</button></div>
           <div className="table-wrap"><table><thead><tr><th>热点内容</th><th>来源</th><th>AI 摘要</th><th>热度</th><th>相关性</th><th>采集时间</th><th /></tr></thead><tbody>{visibleItems.map((item) => <HotItemRow key={item.id} item={item} onClick={() => setSelected(item)} />)}</tbody></table>{visibleItems.length === 0 && <div className="empty-state"><strong>没有匹配的热点</strong><span>试试清除筛选条件或换一个关键词。</span></div>}</div>
         </section>
@@ -282,8 +330,26 @@ function ImageGenerationWorkspace() {
 }
 
 function MetricCard({ label, value, note, tone }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}>◈</div><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div><b className="metric-trend">↗</b></article> }
-function HotItemRow({ item, onClick }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <tr onClick={onClick}><td><div className="item-title"><strong>{item.title}</strong><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div></td><td><span className={`source-badge ${item.source}`}>{item.sourceName}</span></td><td><span className="summary">{item.summary}</span></td><td><strong className="score">{item.rawScore}</strong></td><td><span className={`ai-score ${item.aiScore >= 85 ? 'good' : ''}`}>{item.aiScore}</span></td><td><span className="collected-time">{item.collectedAt}</span></td><td><span className="row-arrow">→</span></td></tr> }
-function DetailDrawer({ item, onClose }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-header"><span className={`source-badge ${item.source}`}>{item.sourceName}</span><button type="button" className="icon-button" onClick={onClose}>×</button></div><p className="eyebrow">HOT ITEM DETAIL</p><h2>{item.title}</h2><div className="drawer-scores"><div><span>热度分</span><strong>{item.rawScore}</strong></div><div><span>相关性</span><strong>{item.aiScore}</strong></div><div><span>重要性</span><strong>{item.importanceLevel === 'high' ? '高' : item.importanceLevel === 'medium' ? '中' : '低'}</strong></div></div><div className="drawer-block"><span className="block-label">AI 摘要</span><p>{item.summary}</p></div><div className="drawer-block"><span className="block-label">标签</span><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><a className="primary-button source-link" href={item.url} target="_blank" rel="noreferrer">打开原文 ↗</a></aside></div> }
+function hotItemAIStateLabel(settings) {
+  if (settings.deploymentAllowed === false) return '部署未允许'
+  if (settings.configured === false) return '配置缺失'
+  if (!settings?.requestedEnabled) return '已关闭'
+  return settings.effectiveEnabled === false ? '配置缺失' : '已开启'
+}
+
+function hotItemAIStateClass(settings) {
+  if (settings.deploymentAllowed === false) return 'blocked'
+  if (settings.configured === false) return 'missing'
+  if (!settings?.requestedEnabled) return 'off'
+  if (settings.effectiveEnabled === false) return 'missing'
+  return 'on'
+}
+
+function isHotItemAnalyzed(item) { return ['completed', 'succeeded', 'analyzed'].includes(String(item?.analysisStatus || '').toLowerCase()) }
+function hotItemSummary(item) { if (!isHotItemAnalyzed(item)) return String(item?.analysisStatus || '').toLowerCase() === 'disabled' ? 'AI 分析未开启' : '等待 AI 分析'; return item.summary || '暂无摘要' }
+function hotItemImportance(item) { if (!isHotItemAnalyzed(item)) return '—'; return item.importanceLevel === 'high' ? '高' : item.importanceLevel === 'medium' ? '中' : '低' }
+function HotItemRow({ item, onClick }) { const tags = Array.isArray(item.tags) ? item.tags : []; const aiScore = item.aiScore ?? '—'; return <tr onClick={onClick}><td><div className="item-title"><strong>{item.title}</strong><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div></td><td><span className={`source-badge ${item.source}`}>{item.sourceName}</span></td><td><span className="summary">{hotItemSummary(item)}</span></td><td><strong className="score">{item.rawScore}</strong></td><td><span className={`ai-score ${item.aiScore >= 85 ? 'good' : ''} ${item.aiScore === null ? 'pending' : ''}`}>{aiScore}</span></td><td><span className="collected-time">{item.collectedAt}</span></td><td><span className="row-arrow">→</span></td></tr> }
+function DetailDrawer({ item, onClose }) { const tags = Array.isArray(item.tags) ? item.tags : []; return <div className="drawer-backdrop" onClick={onClose}><aside className="detail-drawer" onClick={(event) => event.stopPropagation()}><div className="drawer-header"><span className={`source-badge ${item.source}`}>{item.sourceName}</span><button type="button" className="icon-button" onClick={onClose}>×</button></div><p className="eyebrow">HOT ITEM DETAIL</p><h2>{item.title}</h2><div className="drawer-scores"><div><span>热度分</span><strong>{item.rawScore}</strong></div><div><span>相关性</span><strong>{item.aiScore ?? '—'}</strong></div><div><span>重要性</span><strong>{hotItemImportance(item)}</strong></div></div><div className="drawer-block"><span className="block-label">AI 摘要</span><p>{hotItemSummary(item)}</p></div><div className="drawer-block"><span className="block-label">标签</span><div className="tag-list">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><a className="primary-button source-link" href={item.url} target="_blank" rel="noreferrer">打开原文 ↗</a></aside></div> }
 
 function ImageGenerationWorkspaceV2() {
   const [form, setForm] = useState({ prompt: '', negativePrompt: '', style: '', size: '1024x1024', n: 1 })

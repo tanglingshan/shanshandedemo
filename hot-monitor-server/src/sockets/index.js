@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { env } from "../config/env.js";
 import { setSocketServer } from "./emitter.js";
+import { readBearerToken, verifyAccessToken } from "../services/accessTokenService.js";
 
 // 初始化 Socket.io，并让实时连接复用 Express 的 Session 鉴权。
 export function setupSocket(httpServer, sessionMiddleware) {
@@ -16,10 +17,23 @@ export function setupSocket(httpServer, sessionMiddleware) {
 
   // 只有已登录用户才能建立实时连接。
   io.use((socket, next) => {
+    const authToken = socket.handshake.auth?.token || socket.handshake.auth?.accessToken;
+    const headerToken = readBearerToken(socket.handshake.headers?.authorization);
+    const suppliedToken = authToken || headerToken;
+    const claims = verifyAccessToken(suppliedToken);
+    if (suppliedToken && !claims) {
+      return next(new Error("Invalid or expired access token"));
+    }
+    if (claims?.sub) {
+      socket.data.userId = claims.sub;
+      socket.data.authMethod = "token";
+      return next();
+    }
     if (!socket.request.session?.userId) {
       return next(new Error("Unauthenticated"));
     }
-
+    socket.data.userId = socket.request.session.userId;
+    socket.data.authMethod = "session";
     return next();
   });
 

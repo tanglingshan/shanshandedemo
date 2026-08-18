@@ -1,5 +1,14 @@
 # 架构概要
 
+## Hot-item AI feature gate
+
+Hot-item AI is controlled by the persisted singleton `AppSetting` and the
+deployment environment variable `HOT_ITEM_AI_ALLOWED`. The persisted value is
+the user's requested state; the effective state additionally requires a
+configured provider key. Collection remains available with AI disabled. Only
+new or content-changed items are analyzed while enabled, and failed analyses
+are retried; items collected while disabled are marked `disabled`.
+
 ## 1. 目标
 
 构建可部署的实时 AI 热点监控 MVP，支持登录、热点采集、AI 分析以及仪表盘实时推送。

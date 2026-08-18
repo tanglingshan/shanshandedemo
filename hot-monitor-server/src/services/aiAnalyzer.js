@@ -2,14 +2,22 @@
 import OpenAI from "openai";
 import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
+import { isHotItemAiEnabled } from "./hotItemAiSettingService.js";
 
 const promptVersion = "mvp-v1";
-const openai = new OpenAI({
-  apiKey: env.openaiApiKey,
-  baseURL: env.openaiBaseUrl,
-  timeout: env.openaiTimeoutMs,
-  maxRetries: env.openaiMaxRetries
-});
+let openai;
+
+function getOpenAI() {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: env.openaiApiKey,
+      baseURL: env.openaiBaseUrl,
+      timeout: env.openaiTimeoutMs,
+      maxRetries: env.openaiMaxRetries
+    });
+  }
+  return openai;
+}
 
 const analysisSchema = {
   type: "object",
@@ -42,8 +50,12 @@ function normalizeImportance(value) {
 }
 
 export async function analyzeHotItem(hotItem) {
+  // Keep the guard inside the provider service as a final server-side check;
+  // callers cannot accidentally spend tokens while the feature is disabled.
+  if (!(await isHotItemAiEnabled())) return null;
+
   // 使用严格 JSON Schema，避免模型返回无法安全入库的自由文本。
-  const response = await openai.responses.create({
+  const response = await getOpenAI().responses.create({
     model: env.openaiModel,
     reasoning: { effort: env.openaiReasoningEffort },
     store: false,

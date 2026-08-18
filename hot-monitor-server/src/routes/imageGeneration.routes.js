@@ -126,7 +126,7 @@ imageGenerationRouter.post("/", requireAuth, async (req, res, next) => {
   try {
     enforceRateLimit(req);
     const input = validateBody(req.body);
-    res.json(success(await generateAndPersistImages(req.session.userId, input)));
+    res.json(success(await generateAndPersistImages(req.auth.userId, input)));
   } catch (error) {
     next(error);
   }
@@ -154,10 +154,10 @@ imageGenerationRouter.get("/history", requireAuth, async (req, res, next) => {
     }
     const staleBefore = new Date(Date.now() - 15 * 60 * 1000);
     await prisma.imageGenerationHistory.updateMany({
-      where: { userId: req.session.userId, status: "pending", createdAt: { lt: staleBefore } },
+      where: { userId: req.auth.userId, status: "pending", createdAt: { lt: staleBefore } },
       data: { status: "failed", errorCode: "IMAGE_GENERATION_STALE", errorMessage: "Generation did not complete", completedAt: new Date() }
     });
-    const where = { userId: req.session.userId, ...(status ? { status } : {}) };
+    const where = { userId: req.auth.userId, ...(status ? { status } : {}) };
     const [total, items] = await Promise.all([
       prisma.imageGenerationHistory.count({ where }),
       prisma.imageGenerationHistory.findMany({
@@ -183,7 +183,7 @@ imageGenerationRouter.get("/history", requireAuth, async (req, res, next) => {
 imageGenerationRouter.get("/images/:id", requireAuth, async (req, res, next) => {
   try {
     const image = await prisma.imageGenerationImage.findFirst({
-      where: { id: String(req.params.id), history: { userId: req.session.userId } }
+      where: { id: String(req.params.id), history: { userId: req.auth.userId } }
     });
     if (!image) throw notFound("Image does not exist");
     if (image.data) {

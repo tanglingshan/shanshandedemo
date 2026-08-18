@@ -4,8 +4,19 @@ import { success } from "../utils/apiResponse.js";
 import { login, register, toUserSummary } from "../services/authService.js";
 import { requireAuth } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
+import { createAccessToken } from "../services/accessTokenService.js";
+import { env } from "../config/env.js";
 
 export const authRouter = Router();
+
+function authResponse(user) {
+  return {
+    ...toUserSummary(user),
+    accessToken: createAccessToken(user),
+    tokenType: "Bearer",
+    expiresIn: env.authTokenTtlSeconds
+  };
+}
 
 function regenerateSession(req) {
   // 登录成功后重新生成 Session，降低会话固定攻击风险。
@@ -34,7 +45,7 @@ authRouter.post("/register", async (req, res, next) => {
     await regenerateSession(req);
     req.session.userId = user.id;
     await saveSession(req);
-    res.status(201).json(success(toUserSummary(user), "Registered"));
+    res.status(201).json(success(authResponse(user), "Registered"));
   } catch (error) {
     next(error);
   }
@@ -47,7 +58,7 @@ authRouter.post("/login", async (req, res, next) => {
     await regenerateSession(req);
     req.session.userId = user.id;
     await saveSession(req);
-    res.json(success(toUserSummary(user), "Logged in"));
+    res.json(success(authResponse(user), "Logged in"));
   } catch (error) {
     next(error);
   }
@@ -65,7 +76,7 @@ authRouter.post("/logout", async (req, res, next) => {
 
 authRouter.get("/me", requireAuth, async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.session.userId } });
+    const user = await prisma.user.findUnique({ where: { id: req.auth.userId } });
     res.json(success(toUserSummary(user)));
   } catch (error) {
     next(error);

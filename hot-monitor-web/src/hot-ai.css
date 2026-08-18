@@ -1,0 +1,18 @@
+.hot-ai-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.hot-ai-status { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.hot-ai-status strong { font-size: 11px; color: #52617a; }
+.hot-ai-state { font-size: 10px; font-weight: 700; }
+.hot-ai-state.off { color: #8995a7; }
+.hot-ai-state.on { color: #208762; }
+.hot-ai-state.blocked, .hot-ai-state.missing { color: #c87928; }
+.switch-control { display: inline-flex; position: relative; width: 40px; height: 22px; flex: none; }
+.switch-control input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch-track { position: absolute; inset: 0; border-radius: 99px; background: #cdd6e4; transition: .2s; cursor: pointer; }
+.switch-track:after { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #1e315022; transition: .2s; }
+.switch-control input:checked + .switch-track { background: #2563eb; }
+.switch-control input:checked + .switch-track:after { transform: translateX(18px); }
+.switch-control input:disabled + .switch-track { cursor: not-allowed; opacity: .55; }
+.hot-ai-error { padding: 9px 24px; border-top: 1px solid #fff2d9; background: #fffaf0; color: #9b682a; font-size: 11px; }
+.hot-ai-error .text-button { font-size: 11px; margin-left: 6px; }
+.ai-score.pending { color: #9aa5b5; background: #f3f5f8; }
+@media (max-width: 760px) { .hot-ai-controls { align-items: flex-end; gap: 9px; } .hot-ai-status { align-items: flex-start; } }

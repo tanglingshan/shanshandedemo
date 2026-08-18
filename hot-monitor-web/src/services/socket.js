@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client'
 import { createMockHotItem } from '../data/mockData'
-import { normalizeHotItem, normalizeOverview } from './api'
+import { clearAccessToken, getAccessToken, normalizeHotItem, normalizeOverview } from './api'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000'
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS !== 'false'
@@ -25,13 +25,25 @@ export function createDashboardSocket({ userId, filters, onStatus, onNewItem, on
     }
   }
 
-  const socket = io(SOCKET_URL, { withCredentials: true })
+  const token = getAccessToken()
+  const socket = io(SOCKET_URL, {
+    withCredentials: true,
+    // Cookie sessions remain supported; the access token is used by
+    // stateless deployments and is never placed in the query string.
+    auth: token ? { token } : undefined,
+  })
   socket.on('connect', () => {
     onStatus?.('connected')
     socket.emit('dashboard:join', { userId, filters })
   })
   socket.on('disconnect', () => onStatus?.('disconnected'))
-  socket.on('connect_error', () => onStatus?.('error'))
+  socket.on('connect_error', (error) => {
+    onStatus?.('error')
+    if (/unauthenticated|unauthorized/i.test(String(error?.message || ''))) {
+      clearAccessToken()
+      try { window.dispatchEvent(new Event('auth:expired')) } catch { /* noop */ }
+    }
+  })
   socket.on('hot-item:new', (payload) => onNewItem?.(normalizeHotItem(payload?.hotItem || payload)))
   socket.on('hot-item:update', (payload) => onUpdate?.(normalizeHotItem(payload?.hotItem || payload)))
   socket.on('stats:update', (payload) => onStats?.(normalizeOverview(payload?.overview || payload)))

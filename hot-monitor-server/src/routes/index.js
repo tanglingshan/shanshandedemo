@@ -6,6 +6,7 @@ import { hotItemsRouter } from "./hotItems.routes.js";
 import { sourcesRouter } from "./sources.routes.js";
 import { statsRouter } from "./stats.routes.js";
 import { imageGenerationRouter } from "./imageGeneration.routes.js";
+import { settingsRouter } from "./settings.routes.js";
 
 export const router = Router();
 
@@ -15,3 +16,4 @@ router.use("/hot-items", hotItemsRouter);
 router.use("/sources", sourcesRouter);
 router.use("/stats", statsRouter);
 router.use("/image-generations", imageGenerationRouter);
+router.use("/settings", settingsRouter);

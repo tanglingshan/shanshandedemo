@@ -1,5 +1,20 @@
 # API 约定
 
+## Hot-item AI settings
+
+### GET `/settings/hot-item-ai`
+
+Requires an authenticated session. The response includes `requestedEnabled`,
+`allowedByEnvironment`, `providerConfigured`, `effectiveEnabled`,
+`analysisMode` (`future_only`), and `updatedAt`.
+
+### PATCH `/settings/hot-item-ai`
+
+Requires an authenticated session. The request body must contain only
+`{ "enabled": true|false }`. Disabling is always persisted. Enabling returns
+`409 AI_ANALYSIS_NOT_ALLOWED` when `HOT_ITEM_AI_ALLOWED` is false, or
+`503 AI_PROVIDER_NOT_CONFIGURED` when the provider key is unavailable.
+
 基础路径：`/api`
 
 ## 认证

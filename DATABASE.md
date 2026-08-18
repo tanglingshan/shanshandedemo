@@ -1,5 +1,15 @@
 # 数据库设计
 
+## `app_settings`（运行时设置）
+
+The singleton row (`id = singleton`) stores the requested hot-item AI state:
+
+- `hot_item_ai_enabled`: user-requested toggle; defaults to `false`.
+- `updated_at`: last update timestamp.
+
+The effective state also requires `HOT_ITEM_AI_ALLOWED=true` and a configured
+OpenAI API key. Disabling remains writable when the deployment gate is off.
+
 ## 数据表
 
 ### users（用户）

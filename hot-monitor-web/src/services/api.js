@@ -3,8 +3,47 @@ import { mockHotItems, mockOverview, mockSources } from '../data/mockData'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 // Mock data is opt-in; real API is the default for development and production.
 const USE_MOCKS = String(import.meta.env.VITE_USE_MOCKS || '').toLowerCase() === 'true'
+const ACCESS_TOKEN_STORAGE_KEY = 'hot-monitor-access-token'
+let accessToken = null
+
+function readAccessToken() {
+  if (accessToken) return accessToken
+  try {
+    accessToken = globalThis.sessionStorage?.getItem(ACCESS_TOKEN_STORAGE_KEY) || null
+  } catch {
+    accessToken = null
+  }
+  return accessToken
+}
+
+export function setAccessToken(token) {
+  const normalized = typeof token === 'string' ? token.trim() : ''
+  accessToken = normalized || null
+  try {
+    if (accessToken) globalThis.sessionStorage?.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken)
+    else globalThis.sessionStorage?.removeItem(ACCESS_TOKEN_STORAGE_KEY)
+  } catch {
+    // Storage can be unavailable in privacy mode; memory still protects the session.
+  }
+  return accessToken
+}
+
+export function getAccessToken() {
+  return readAccessToken()
+}
+
+export function clearAccessToken() {
+  accessToken = null
+  try { globalThis.sessionStorage?.removeItem(ACCESS_TOKEN_STORAGE_KEY) } catch { /* noop */ }
+}
+
+function notifyAuthExpired() {
+  if (typeof globalThis.window === 'undefined') return
+  try { globalThis.window.dispatchEvent(new globalThis.Event('auth:expired')) } catch { /* noop */ }
+}
 const INVALID_RESPONSE_MESSAGE = '服务器返回了无效数据，请稍后重试'
 const mockUsers = [{ id: 'user-demo', email: 'demo@hotmonitor.dev' }]
+let mockHotItemAIEnabled = false
 const sourceNames = {
   hackernews: 'HackerNews',
   bing: 'Bing',
@@ -48,8 +87,11 @@ async function normalizeAuthBody(body = {}, register = false) {
   const source = { ...body }
   const suppliedDigest = source.passwordDigest || source.credential
   const passwordDigest = suppliedDigest || (source.password !== undefined ? await sha256Hex(source.password) : '')
+  const account = String(source.account ?? source.email ?? source.username ?? '').trim()
   const payload = {
-    email: source.email,
+    account,
+    // Keep email during the transition so older API deployments continue to work.
+    email: source.email || account,
     passwordDigest,
     credential: passwordDigest,
   }
@@ -63,15 +105,44 @@ async function normalizeAuthBody(body = {}, register = false) {
 function normalizeHotItem(item) {
   if (!item) return item
   const source = item.source || item.sourceCode || 'unknown'
+  const analysis = item.aiAnalysis || {}
+  const rawAiScore = item.aiScore ?? item.relevanceScore ?? analysis.relevanceScore
+  const analysisStatus = item.analysisStatus || analysis.analysisStatus || analysis.status
+    || (rawAiScore !== undefined && rawAiScore !== null ? 'completed' : 'pending')
+  const isAnalyzed = analysisStatus === 'completed' || analysisStatus === 'succeeded' || analysisStatus === 'analyzed'
   return {
     ...item,
     source,
     sourceName: item.sourceName || sourceNames[source] || source,
     rawScore: item.rawScore ?? item.hotScore ?? 0,
-    aiScore: item.aiScore ?? item.relevanceScore ?? item.aiAnalysis?.relevanceScore ?? 0,
+    // Pending/disabled items must not look like an analyzed score of zero.
+    aiScore: isAnalyzed && rawAiScore !== undefined && rawAiScore !== null ? rawAiScore : null,
+    analysisStatus,
+    summary: item.summary || analysis.summary || '',
     url: item.url || item.canonicalUrl || '#',
-    tags: Array.isArray(item.tags) ? item.tags : [],
+    tags: Array.isArray(item.tags) ? item.tags : (Array.isArray(analysis.tags) ? analysis.tags : []),
     collectedAt: formatCollectedAt(item.collectedAt),
+  }
+}
+
+function normalizeHotItemAISettings(data) {
+  const source = data?.settings || data || {}
+  const status = String(source.status || '').toLowerCase()
+  const requestedEnabled = Boolean(source.requestedEnabled ?? source.aiEnabled ?? source.enabled ?? false)
+  const deploymentAllowed = source.allowedByEnvironment ?? source.deploymentAllowed ?? source.allowed
+    ?? !['not_allowed', 'deployment_not_allowed', 'disabled_by_deployment'].includes(status)
+  const configured = source.providerConfigured ?? source.configured ?? source.aiConfigured
+    ?? !['config_missing', 'not_configured', 'provider_not_configured'].includes(status)
+  const effectiveEnabled = source.effectiveEnabled ?? (requestedEnabled && deploymentAllowed && configured)
+  return {
+    ...source,
+    requestedEnabled,
+    aiEnabled: requestedEnabled,
+    enabled: requestedEnabled,
+    deploymentAllowed: Boolean(deploymentAllowed),
+    configured: Boolean(configured),
+    effectiveEnabled: Boolean(effectiveEnabled),
+    status,
   }
 }
 
@@ -165,7 +236,7 @@ async function mockRequest(path, options = {}) {
   if (path === '/auth/login') {
     const user = mockUsers.find((item) => item.email === body.email) || { id: 'user-demo', email: body.email }
     localStorage.setItem('hot-monitor-user', JSON.stringify(user))
-    return response(user)
+    return response({ ...user, accessToken: `mock-token-${Date.now()}` })
   }
   if (path === '/auth/register') {
     const user = { id: `user-${Date.now()}`, email: body.email }
@@ -178,6 +249,16 @@ async function mockRequest(path, options = {}) {
     return response(null, '已退出登录')
   }
   if (path === '/stats/overview') return response(mockOverview)
+  if (path === '/settings/hot-item-ai') {
+    if (options.method === 'PATCH') {
+      const enabled = Boolean(body.enabled ?? body.aiEnabled)
+      mockHotItemAIEnabled = enabled
+      globalThis.localStorage?.setItem('mock-hot-item-ai-enabled', String(enabled))
+    }
+    const stored = globalThis.localStorage?.getItem('mock-hot-item-ai-enabled')
+    const enabled = stored === null || stored === undefined ? mockHotItemAIEnabled : stored === 'true'
+    return response({ requestedEnabled: enabled, allowedByEnvironment: true, providerConfigured: true, effectiveEnabled: enabled, analysisMode: 'future_only', status: enabled ? 'enabled' : 'disabled' })
+  }
   if (path === '/sources') return response(mockSources.slice(1))
   if (path.startsWith('/hot-items/')) {
     const item = mockHotItems.find((entry) => entry.id === path.split('/').pop()) || mockHotItems[0]
@@ -247,13 +328,20 @@ async function mockRequest(path, options = {}) {
 async function request(path, options = {}) {
   if (USE_MOCKS) return mockRequest(path, options)
   const query = options.query ? `?${new URLSearchParams(options.query)}` : ''
+  const token = readAccessToken()
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  if (token && !headers.Authorization && !headers.authorization) headers.Authorization = `Bearer ${token}`
   const responseValue = await fetch(`${API_BASE_URL}${path}${query}`, {
     method: options.method || 'GET',
     credentials: 'include',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
+  if (responseValue.status === 401) {
+    clearAccessToken()
+    notifyAuthExpired()
+  }
   let payload
   try {
     const rawBody = await responseValue.text()
@@ -267,11 +355,30 @@ async function request(path, options = {}) {
   return payload
 }
 
+function normalizeAuthResult(result) {
+  const data = result?.data
+  const token = result?.accessToken || result?.access_token || result?.token
+    || data?.accessToken || data?.access_token || data?.token
+  if (token) setAccessToken(token)
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return token ? { ...result, accessToken: token } : result
+  }
+  const user = data.user || data.userInfo || data.profile || (token
+    ? Object.fromEntries(Object.entries(data).filter(([key]) => !['accessToken', 'access_token', 'token', 'tokenType', 'expiresIn', 'expires_in'].includes(key)))
+    : data)
+  return { ...result, data: user, ...(token ? { accessToken: token } : {}) }
+}
+
 export const api = {
-  me: () => request('/auth/me'),
-  login: async (body) => request('/auth/login', { method: 'POST', body: await normalizeAuthBody(body) }),
-  register: async (body) => request('/auth/register', { method: 'POST', body: await normalizeAuthBody(body, true) }),
-  logout: () => request('/auth/logout', { method: 'POST' }),
+  me: async () => {
+    const result = await request('/auth/me')
+    return result?.data?.user ? { ...result, data: result.data.user } : result
+  },
+  login: async (body) => normalizeAuthResult(await request('/auth/login', { method: 'POST', body: await normalizeAuthBody(body) })),
+  register: async (body) => normalizeAuthResult(await request('/auth/register', { method: 'POST', body: await normalizeAuthBody(body, true) })),
+  logout: async () => {
+    try { return await request('/auth/logout', { method: 'POST' }) } finally { clearAccessToken() }
+  },
   hotItems: async (query = {}) => {
     const result = await request('/hot-items', { query: cleanQuery(query) })
     return {
@@ -295,6 +402,17 @@ export const api = {
     const result = await request('/image-generations', { method: 'POST', body })
     return { ...result, data: normalizeImageGeneration(result.data) }
   },
+  hotItemAISettings: async () => {
+    const result = await request('/settings/hot-item-ai')
+    return { ...result, data: normalizeHotItemAISettings(result.data) }
+  },
+  updateHotItemAISettings: async (enabled) => {
+    const result = await request('/settings/hot-item-ai', {
+      method: 'PATCH',
+      body: { enabled: Boolean(enabled) },
+    })
+    return { ...result, data: normalizeHotItemAISettings(result.data) }
+  },
   imagePolish: async (body) => {
     const result = await request('/image-generations/polish', { method: 'POST', body })
     return result
@@ -305,4 +423,4 @@ export const api = {
   },
 }
 
-export { normalizeHotItem, normalizeOverview, normalizeImageGeneration, normalizeImageHistory, normalizeAuthBody, resolveAssetUrl }
+export { normalizeHotItem, normalizeOverview, normalizeHotItemAISettings, normalizeImageGeneration, normalizeImageHistory, normalizeAuthBody, resolveAssetUrl }

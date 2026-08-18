@@ -2,6 +2,7 @@
 import { collectors } from "../collectors/index.js";
 import { prisma } from "../lib/prisma.js";
 import { analyzeHotItem } from "./aiAnalyzer.js";
+import { isHotItemAiEnabled } from "./hotItemAiSettingService.js";
 import { getOverviewStats } from "./statsService.js";
 import { upsertCollectedItem } from "./hotItemService.js";
 import {
@@ -69,6 +70,7 @@ export async function runCollectorForSource(source) {
     }
 
     const rawItems = await collect(source);
+    const hotItemAiEnabled = await isHotItemAiEnabled();
     let itemsInserted = 0;
     let itemsUpdated = 0;
     let itemsSkipped = 0;
@@ -77,20 +79,30 @@ export async function runCollectorForSource(source) {
       let stage = "upsert";
       let sourceItemId = null;
       let title = null;
+      let hotItemId = null;
       try {
         // 先判断是否已有记录，后续用于区分新增事件和更新事件。
         sourceItemId = String(rawItem.sourceItemId || rawItem.url || rawItem.title);
         title = sanitizeLogValue(rawItem.title);
         stage = "upsert";
-        const { item: hotItem, created } = await upsertCollectedItem({
+        const { item: hotItem, created, changed } = await upsertCollectedItem({
           ...rawItem,
           sourceCode: source.code,
           sourceItemId
         });
+        hotItemId = hotItem.id;
 
-        // 采集不依赖 AI，但入库后会进入 AI 分析阶段。
-        stage = "analyze";
-        await analyzeHotItem(hotItem);
+        // AI is opt-in for new/changed items; failed analyses are retried.
+        if (hotItemAiEnabled && (created || changed || hotItem.analysisStatus === "failed")) {
+          stage = "analyze";
+          await analyzeHotItem(hotItem);
+        } else if (!hotItemAiEnabled && (created || changed)) {
+          stage = "disable";
+          await prisma.hotItem.update({
+            where: { id: hotItem.id },
+            data: { analysisStatus: "disabled" }
+          });
+        }
         stage = "refresh";
         const refreshed = await prisma.hotItem.findUnique({
           where: { id: hotItem.id },
@@ -106,6 +118,20 @@ export async function runCollectorForSource(source) {
           emitHotItemUpdate(refreshed);
         }
       } catch (error) {
+        if (stage === "analyze" && hotItemId) {
+          try {
+            await prisma.hotItem.update({
+              where: { id: hotItemId },
+              data: { analysisStatus: "failed" }
+            });
+          } catch (statusError) {
+            console.error("Failed to persist AI analysis failure status", {
+              sourceCode: sanitizeLogValue(source.code),
+              sourceItemId: sanitizeLogValue(sourceItemId),
+              error: serializeError(statusError)
+            });
+          }
+        }
         // 单条热点失败不影响同一数据源的其他热点继续处理。
         itemsSkipped += 1;
         console.error("Collector item failed", {

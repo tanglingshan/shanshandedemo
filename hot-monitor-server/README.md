@@ -79,6 +79,8 @@ npm run dev
 - `DATABASE_URL`
 - `SESSION_SECRET`
 - `SESSION_COOKIE_NAME`
+- `AUTH_TOKEN_SECRET` (Bearer token signing secret; production requires at least 32 characters)
+- `AUTH_TOKEN_TTL_SECONDS=3600` (Bearer token lifetime; defaults to one hour)
 - `CORS_ORIGIN`
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL=https://llmapi.xfcxb.com/v1`
@@ -86,6 +88,19 @@ npm run dev
 - `OPENAI_REASONING_EFFORT=low`
 - `OPENAI_TIMEOUT_MS=30000`
 - `OPENAI_MAX_RETRIES=2`
+- `HOT_ITEM_AI_ALLOWED=false`
+
+热点自动 AI 分析默认关闭，必须同时满足以下条件才会调用模型：
+
+1. 服务端环境变量 `HOT_ITEM_AI_ALLOWED=true`；
+2. 已登录用户通过 `PATCH /api/settings/hot-item-ai` 将 `enabled` 设置为 `true`。
+
+环境变量是部署级总开关，关闭时运行时接口无法绕过。关闭分析不会停止热点采集；采集任务仍会入库。自动分析只针对新热点或内容哈希发生变化的热点执行，不会在每轮轮询中重复消耗 token。
+
+接口：
+
+- `GET /api/settings/hot-item-ai`：登录后读取 `requestedEnabled`、`allowedByEnvironment`、`providerConfigured`、`effectiveEnabled`、`analysisMode`（固定为 `future_only`）和 `updatedAt`。
+- `PATCH /api/settings/hot-item-ai`：登录后严格提交 `{ "enabled": true|false }`。当环境总开关关闭时返回 `409 AI_ANALYSIS_NOT_ALLOWED`；缺少有效 provider 配置时开启返回 `503 AI_PROVIDER_NOT_CONFIGURED`。
 - `COLLECTOR_INTERVAL_MINUTES=5`
 
 `OPENAI_BASE_URL` 指向已配置的 OpenAI 兼容代理端点。当前代理提供
@@ -124,6 +139,8 @@ npm start
 - `GET /api/hot-items/:id`
 - `GET /api/stats/overview`
 - `GET /api/sources`
+
+Authentication accepts `account`, `username`, or the compatibility field `email` for registration and login. Successful responses include an `accessToken`; send it as `Authorization: Bearer <accessToken>` to protected APIs. Tokens expire after one hour by default. Existing Session cookies remain supported when no Bearer token is supplied.
 
 ## Socket 事件
 

@@ -157,12 +157,25 @@ async function findExistingHotItem({ sourceCode, sourceItemId, canonicalUrl }) {
 }
 
 function buildSafeHotItemUpdate(existing, data) {
+  const contentChanged = existing.rawContentHash !== data.rawContentHash;
   const update = {
     title: data.title,
     publishedAt: data.publishedAt,
     collectedAt: data.collectedAt,
     rawContentHash: data.rawContentHash,
-    hotScore: data.hotScore
+    hotScore: data.hotScore,
+    ...(contentChanged
+      ? {
+          // Reset derived fields when the source content changes so stale AI
+          // output cannot be shown for the new article version.
+          summary: data.summary || null,
+          tags: data.tags || [],
+          relevanceScore: null,
+          importanceLevel: "normal",
+          analysisStatus: "pending",
+          aiAnalysis: { delete: true }
+        }
+      : {})
   };
 
   if (!existing.canonicalUrl && data.canonicalUrl) {
@@ -173,11 +186,15 @@ function buildSafeHotItemUpdate(existing, data) {
 }
 
 async function updateExistingHotItem(existing, data) {
+  const contentChanged = existing.rawContentHash !== data.rawContentHash;
   try {
-    return await prisma.hotItem.update({
-      where: { id: existing.id },
-      data: buildSafeHotItemUpdate(existing, data)
-    });
+    return {
+      item: await prisma.hotItem.update({
+        where: { id: existing.id },
+        data: buildSafeHotItemUpdate(existing, data)
+      }),
+      changed: contentChanged
+    };
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
 
@@ -185,23 +202,22 @@ async function updateExistingHotItem(existing, data) {
       where: { canonicalUrl: data.canonicalUrl }
     });
     if (!winner) throw error;
-    return winner;
+    return { item: winner, changed: contentChanged };
   }
 }
 
 async function updateOrCreateHotItem({ sourceCode, sourceItemId, canonicalUrl, data }) {
   const existing = await findExistingHotItem({ sourceCode, sourceItemId, canonicalUrl });
   if (existing) {
-    return {
-      item: await updateExistingHotItem(existing, data),
-      created: false
-    };
+    const result = await updateExistingHotItem(existing, data);
+    return { ...result, created: false };
   }
 
   try {
     return {
       item: await prisma.hotItem.create({ data }),
-      created: true
+      created: true,
+      changed: true
     };
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
@@ -209,10 +225,8 @@ async function updateOrCreateHotItem({ sourceCode, sourceItemId, canonicalUrl, d
     const winner = await findExistingHotItem({ sourceCode, sourceItemId, canonicalUrl });
     if (!winner) throw error;
 
-    return {
-      item: await updateExistingHotItem(winner, data),
-      created: false
-    };
+    const result = await updateExistingHotItem(winner, data);
+    return { ...result, created: false };
   }
 }
 
@@ -235,7 +249,7 @@ export async function upsertCollectedItem(rawItem) {
     analysisStatus: "pending"
   };
 
-  const { item, created } = await updateOrCreateHotItem({
+  const { item, created, changed } = await updateOrCreateHotItem({
     sourceCode,
     sourceItemId,
     canonicalUrl,
@@ -264,5 +278,5 @@ export async function upsertCollectedItem(rawItem) {
     }
   });
 
-  return { item, created };
+  return { item, created, changed };
 }
