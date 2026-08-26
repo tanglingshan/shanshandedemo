@@ -92,8 +92,10 @@ export async function runCollectorForSource(source) {
         });
         hotItemId = hotItem.id;
 
-        // AI is opt-in for new/changed items; failed analyses are retried.
-        if (hotItemAiEnabled && (created || changed || hotItem.analysisStatus === "failed")) {
+        // AI is opt-in for new/changed items; failed analyses and unanalyzed items are retried.
+        const needsAnalysis = created || changed || hotItem.analysisStatus === "failed"
+          || hotItem.analysisStatus === "disabled" || hotItem.analysisStatus === "pending";
+        if (hotItemAiEnabled && needsAnalysis) {
           stage = "analyze";
           await analyzeHotItem(hotItem);
         } else if (!hotItemAiEnabled && (created || changed)) {
